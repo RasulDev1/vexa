@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<link rel="icon" href="data:,">
+<title>VEXA — демо магазина и CRM</title>
+<meta name="description" content="Живая демо-версия магазина VEXA в Telegram и CRM для сотрудников: слева телефон покупателя, справа CRM. Данные хранятся только в браузере.">
+<!-- Шрифты те же, что у магазина (app/fonts) -->
+<link rel="stylesheet" href="app/css/fonts.css?v=20261016d">
+<link rel="stylesheet" href="split.css?v=20261016d">
+</head>
+<body>
+<!-- Демо: слева магазин в «телефоне», справа CRM. Оба экрана — страницы из app/, у них общая база в localStorage,
+     поэтому заказ из магазина сразу появляется в CRM, а ответ менеджера — у покупателя. Живая база Supabase не используется. -->
+<header class="top">
+  <div class="top-brand">
+    <span class="logo">VEXA</span>
+    <span class="pill">демо</span>
+    <span class="top-note">Данные хранятся только в вашем браузере</span>
+  </div>
+  <div class="views" role="group" aria-label="Что показать">
+    <button type="button" data-view="both" aria-pressed="true"><span class="v-long">Телефон + CRM</span><span class="v-short">Оба</span></button>
+    <button type="button" data-view="shop" aria-pressed="false">Магазин</button>
+    <button type="button" data-view="crm" aria-pressed="false">CRM</button>
+  </div>
+  <button class="reset" id="reset" type="button">Сбросить демо</button>
+</header>
+
+<ol class="steps" id="steps">
+  <li><b>Добавьте товар</b> в корзину</li>
+  <li><b>Оформите заказ</b> в «Корзине»</li>
+  <li><b>Примите заказ</b> в CRM</li>
+  <li><b>Напишите в чат</b> заказа</li>
+  <li><b>Отметьте оплату</b> и выдачу</li>
+</ol>
+
+<main class="stage" id="stage" data-view="both">
+  <section class="pane pane-shop" aria-label="Магазин покупателя">
+    <div class="phone-fit" id="phoneFit">
+      <div class="phone" id="phone">
+        <div class="phone-status" aria-hidden="true"><span>9:41</span><span class="notch"></span><span class="bars"><i></i><i></i><i></i><i></i></span></div>
+        <div class="tg-head" aria-hidden="true">
+          <span class="tg-close">Закрыть</span>
+          <span class="tg-title">VEXA<small>мини-приложение</small></span>
+          <span class="tg-dots">•••</span>
+        </div>
+        <iframe id="shopFrame" src="app/index.html?embed=1" title="Магазин VEXA (демо)"></iframe>
+      </div>
+    </div>
+    <p class="caption">Покупатель в Telegram · <a href="app/index.html" target="_blank" rel="noopener">отдельно ↗</a></p>
+  </section>
+
+  <section class="pane pane-crm" aria-label="CRM для сотрудников">
+    <div class="crm-card">
+      <div class="crm-bar">
+        <span class="crm-dots" aria-hidden="true"><i></i><i></i><i></i></span>
+        <span class="crm-title">CRM для сотрудников</span>
+        <label class="role">Вход как
+          <select id="role">
+            <option value="demo-1">Директор</option>
+            <option value="demo-2">Менеджер</option>
+          </select>
+        </label>
+        <a class="crm-open" href="app/crm.html" target="_blank" rel="noopener">отдельно ↗</a>
+      </div>
+      <div class="crm-fit" id="crmFit">
+        <iframe id="crmFrame" src="app/crm.html?embed=1" title="CRM магазина VEXA (демо)"></iframe>
+      </div>
+    </div>
+  </section>
+</main>
+
+<script src="split.js?v=20261016d"></script>
+</body>
+</html>

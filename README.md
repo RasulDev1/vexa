@@ -143,6 +143,18 @@ Permissions → Repository permissions → **Contents: Read and write** → **Ge
 `export const API_URL = "https://1-2-3-4.sslip.io";` — тогда на Pages заработает всё: склад, заказы, управление.
 В `.env` на сервере укажите `PUBLIC_URL` = адрес на GitHub Pages, чтобы кнопки бота вели на сайт.
 
+## Демо-версия (без базы)
+
+Адрес: **https://rasuldev1.github.io/vexa/demo/** — слева магазин в «телефоне», справа CRM. Кнопками сверху можно
+оставить только магазин или только CRM, а в CRM войти директором или менеджером без пароля.
+Всё работает в браузере посетителя (`demo/app/js/demo.js`): живая база Supabase и Telegram не используются,
+заказ из магазина сразу появляется в CRM, ответ менеджера — у покупателя. «Сбросить демо» возвращает исходные данные.
+
+`demo/app/` — копия сайта с подменой базы. Отличаются от основного сайта только `index.html`, `crm.html`,
+`css/demo.css`, `catalog/catalog.json` и в `js/`: `demo.js`, `config.js`, `core.js`, `supabase.js`, `state.js`, `main.js`,
+`admin-export.js`, `admin-customers.js`, `admin-tasks.js`, `staff-login.js`. Остальные файлы при обновлении сайта
+можно просто скопировать в `demo/app/` поверх старых.
+
 ## Учёт товара и заказы
 
 В «Управлении товарами» → «Изменить» включите «Вести учёт количества» и впишите остатки
