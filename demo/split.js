@@ -4,6 +4,7 @@
   const PREFIX = "vexademo_";                 // как STORAGE_PREFIX в app/js/core.js
   const TOKEN_KEY = PREFIX + "temp_staff_token";
   const VIEW_KEY = "vexademo_split_view";     // выбор раскладки посетителя; при сбросе не стирается
+  const THEME_KEY = "vexademo_theme";         // светлая или тёмная тема; читают и страницы из app/, тоже не стирается
   const PHONE_W = 414, PHONE_H = 868;         // телефон с рамкой
   const CRM_MIN_W = 1100;                     // уже — CRM рисуется в этой ширине и уменьшается
 
@@ -53,6 +54,25 @@
   }
   new ResizeObserver(fit).observe(stage);
 
+  /* ---------- Тема: светлая или тёмная, сразу у страницы, магазина и CRM ---------- */
+  const themeButton = $("theme");
+  const currentTheme = () => (document.documentElement.dataset.theme === "dark" ? "dark" : "light");
+  function showTheme(theme) {
+    document.documentElement.dataset.theme = theme;
+    themeButton.setAttribute("aria-pressed", String(theme === "dark"));
+    $("themeText").textContent = theme === "dark" ? "Тёмная" : "Светлая";
+    themeButton.title = theme === "dark" ? "Включить светлую тему" : "Включить тёмную тему";
+  }
+  themeButton.addEventListener("click", () => {
+    const next = currentTheme() === "dark" ? "light" : "dark";
+    write(THEME_KEY, JSON.stringify(next)); // страницы в рамках получат событие storage и перекрасятся сами
+    showTheme(next);
+  });
+  addEventListener("storage", (e) => {
+    if (e.key === THEME_KEY) { try { showTheme(JSON.parse(e.newValue) === "dark" ? "dark" : "light"); } catch {} }
+  });
+  showTheme(currentTheme());
+
   /* ---------- Вход в CRM: директор или менеджер (без пароля, это демо) ---------- */
   const role = $("role");
   function syncRole() {
@@ -85,7 +105,7 @@
     try {
       for (let i = localStorage.length - 1; i >= 0; i--) {
         const key = localStorage.key(i);
-        if (key?.startsWith(PREFIX) && key !== VIEW_KEY) localStorage.removeItem(key);
+        if (key?.startsWith(PREFIX) && key !== VIEW_KEY && key !== THEME_KEY) localStorage.removeItem(key);
       }
     } catch {}
     syncRole();

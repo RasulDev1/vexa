@@ -22,18 +22,6 @@
   .staff-mode .staff-badge { flex-wrap: wrap; justify-content: flex-end; row-gap: 4px; min-width: 0; }
 }
 
-/* Демо на сайте: CRM всегда в родной светлой теме (тёмно-синее меню, жёлтые акценты), даже если в системе тёмная */
-html:root.staff-mode:not(#_) {
-  --bg: #F5F7FA; --surface: #FFFFFF; --ink: #0E2A47; --muted: #627489; --line: #E2E8EF;
-  --nav-bg: #0E2A47; --nav-ink: #FFFFFF; --nav-muted: rgba(255, 255, 255, .64); --nav-line: rgba(255, 255, 255, .12); --nav-hover: rgba(255, 255, 255, .08);
-  --accent: #F2C400; --accent-ink: #0E2A47; --accent-text: #8A6D00; --lane: #0F172A;
-  --soft: #FEF6D3; --hover: #F3F4F6; --ring: rgba(242, 196, 0, .35);
-  --shadow-xs: 0 1px 2px rgba(14, 42, 71, .05);
-  --shadow-sm: 0 1px 3px rgba(15, 23, 42, .06), 0 1px 2px rgba(15, 23, 42, .04);
-  --shadow-lg: 0 20px 48px rgba(15, 23, 42, .18);
-  --db-warm: #0E2A47; --db-violet-2: #FBE38A;
-  color-scheme: light;
-}
 html.staff-mode .demo-bar { background: #0B2340; }
 
 /* Внутри страницы «телефон + CRM» общая полоса «Демо» уже есть сверху */
