@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<link rel="icon" href="data:,">
+<title>VEXA — магазин (демо)</title>
+<link rel="stylesheet" href="css/app.css?v=20261016d">
+<link rel="stylesheet" href="css/chat.css?v=20261016d">
+<link rel="stylesheet" href="css/orders.css?v=20261016d">
+<!-- Шрифты лежат на сайте (fonts/); кириллицу просим сразу, чтобы текст не перерисовывался -->
+<link rel="stylesheet" href="css/demo.css?v=20261016d">
+<!-- Внутри страницы «телефон + CRM» (../index.html) своя полоса «Демо» не нужна: там общая -->
+<script>if (/[?&]embed=1/.test(location.search)) document.documentElement.classList.add("demo-embed");</script>
+<link rel="stylesheet" href="css/fonts.css?v=20261016d">
+<link rel="preload" href="fonts/manrope-cyrillic.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="fonts/unbounded-cyrillic.woff2" as="font" type="font/woff2" crossorigin>
+<!-- Свежие версии скриптов: модули ссылаются друг на друга с ?v=20261001b, а карта подменяет адрес на новый.
+     При следующем обновлении сайта достаточно поменять версию справа (и у main.js ниже) — браузер и Telegram скачают файлы заново. -->
+<script type="importmap">
+{
+  "imports": {
+    "./js/cart.js?v=20261001b": "./js/cart.js?v=20261016d",
+    "./js/catalog.js?v=20261001b": "./js/catalog.js?v=20261016d",
+    "./js/chat.js?v=20261001b": "./js/chat.js?v=20261016d",
+    "./js/config.js?v=20261001b": "./js/config.js?v=20261016d",
+    "./js/core.js?v=20261001b": "./js/core.js?v=20261016d",
+    "./js/demo.js?v=20261001b": "./js/demo.js?v=20261016d",
+    "./js/data.js?v=20261001b": "./js/data.js?v=20261016d",
+    "./js/github.js?v=20261001b": "./js/github.js?v=20261016d",
+    "./js/main.js?v=20261001b": "./js/main.js?v=20261016d",
+    "./js/nav.js?v=20261001b": "./js/nav.js?v=20261016d",
+    "./js/photos.js?v=20261001b": "./js/photos.js?v=20261016d",
+    "./js/shop.js?v=20261001b": "./js/shop.js?v=20261016d",
+    "./js/reviews.js?v=20261001b": "./js/reviews.js?v=20261016d",
+    "./js/state.js?v=20261001b": "./js/state.js?v=20261016d",
+    "./js/supabase.js?v=20261001b": "./js/supabase.js?v=20261016d"
+  }
+}
+</script>
+<script type="module" src="js/main.js?v=20261016d"></script>
+<link rel="modulepreload" href="js/config.js?v=20261016d">
+<link rel="modulepreload" href="js/core.js?v=20261016d">
+<link rel="modulepreload" href="js/data.js?v=20261016d">
+<link rel="modulepreload" href="js/state.js?v=20261016d">
+<link rel="modulepreload" href="js/catalog.js?v=20261016d">
+<link rel="modulepreload" href="js/photos.js?v=20261016d">
+<link rel="modulepreload" href="js/nav.js?v=20261016d">
+<link rel="modulepreload" href="js/shop.js?v=20261016d">
+<link rel="modulepreload" href="js/cart.js?v=20261016d">
+<link rel="modulepreload" href="js/github.js?v=20261016d">
+<link rel="modulepreload" href="js/supabase.js?v=20261016d">
+<link rel="modulepreload" href="js/demo.js?v=20261016d">
+<link rel="modulepreload" href="js/chat.js?v=20261016d">
+</head>
+<body>
+<!-- Демо-версия: данные только в этом браузере (js/demo.js) -->
+<div class="demo-bar" role="note"><span class="demo-bar-text"><b>Демо-версия.</b> Данные хранятся только в вашем браузере.</span>
+  <span class="demo-bar-actions"><button id="demoReset" type="button">Сбросить демо</button></span></div>
+<div class="wrap">
+  <header class="hero">
+    <div class="hero-top">
+      <h1 class="brand">VEXA<span class="men">MEN</span></h1>
+      <address class="shop" id="shopAddress"><span>Краснодар,<br>ул.&nbsp;Моя Выдумка&nbsp;67</span><span class="hours"><i>Ежедневно</i> <i>9:00–19:00</i></span></address>
+    </div>
+    <div class="lanes" aria-hidden="true"><span></span><span></span><span></span><span></span></div>
+    <p class="tag" id="greeting">Мужская одежда для бега, зала и улицы</p>
+    <a class="staff-entry" id="staffEntry" href="crm.html" hidden>Для сотрудников →</a>
+  </header>
+
+  <nav class="tabs" id="tabs" aria-label="Разделы">
+    <button class="tab" data-tab="cart" aria-pressed="false">Корзина<span id="cartTabCount"></span></button>
+    <button class="tab" data-tab="orders" aria-pressed="false">Мои заказы</button>
+    <button class="tab" data-tab="shop" aria-pressed="true">Товары</button>
+  </nav>
+  <div id="shopPage">
+    <div class="cats-bar">
+      <nav class="cats" id="categories" aria-label="Категории"></nav>
+    </div>
+    <main class="grid" id="grid"></main>
+  </div>
+  <section class="page" id="cartPage" hidden></section>
+  <section class="page" id="ordersPage" hidden></section>
+</div>
+
+<div class="cartbar" id="cartBar"><button id="cartBarButton"><span id="cartBarText">Корзина</span><span id="cartBarTotal"></span></button></div>
+
+<div class="scrim" id="scrim"></div>
+<section class="sheet" id="sheet" role="dialog" aria-modal="true">
+  <button class="close" id="closeSheet" aria-label="Закрыть">✕</button>
+  <div class="sheet-inner" id="sheetBody"></div>
+</section>
+<div class="toast" id="toast" role="status"></div>
+</body>
+</html>

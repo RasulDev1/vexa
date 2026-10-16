@@ -1,0 +1,418 @@
+/* =====================================================================
+   Интерфейс сотрудника (менеджер, директор) в стиле Clean SaaS / Minimal.
+   Всё здесь действует только в режиме сотрудника (html.staff-mode) — у покупателей ничего не меняется.
+   ===================================================================== */
+
+/* ---------- Палитра: фирменные тёмно-синий и жёлтый, нейтральные серые; шрифт без «Unbounded» ---------- */
+:root.staff-mode {
+  --bg: #F5F7FA; --surface: #FFFFFF; --ink: #0E2A47; --muted: #627489; --line: #E2E8EF;
+  /* фирменный тёмно-синий: шапка и меню CRM */
+  --nav-bg: #0E2A47; --nav-ink: #FFFFFF; --nav-muted: rgba(255, 255, 255, .64); --nav-line: rgba(255, 255, 255, .12); --nav-hover: rgba(255, 255, 255, .08);
+  --accent: #F2C400; --accent-ink: #0E2A47; --accent-text: #8A6D00; --lane: #0F172A; --ok: #059669; --danger: #DC2626;
+  --soft: #FEF6D3; --hover: #F3F4F6; --ring: rgba(242, 196, 0, .35);
+  --shadow-xs: 0 1px 2px rgba(14, 42, 71, .05);
+  --shadow-sm: 0 1px 3px rgba(15, 23, 42, .06), 0 1px 2px rgba(15, 23, 42, .04);
+  --shadow-lg: 0 20px 48px rgba(15, 23, 42, .18);
+  --db-warm: #0E2A47; --db-violet-2: #FBE38A; /* фирменные цвета магазина: жёлтый и тёмно-синий */
+  --display: "Manrope", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root.staff-mode:not([data-theme="light"]) {
+    --bg: #0A1522; --surface: #12233A; --ink: #EAF1F8; --muted: #8FA2B6; --line: #22384F; --nav-bg: #0C1D31;
+    --accent: #F2C400; --accent-ink: #0A1522; --accent-text: #F2C400; --lane: #E5E7EB; --soft: rgba(242, 196, 0, .14); --hover: #183049; --ring: rgba(242, 196, 0, .35);
+    --db-warm: #8FA2B6; --db-violet-2: #7A6400;
+    --shadow-xs: none; --shadow-sm: none; --shadow-lg: 0 20px 48px rgba(0, 0, 0, .5);
+  }
+}
+:root.staff-mode[data-theme="dark"] {
+  --bg: #0A1522; --surface: #12233A; --ink: #EAF1F8; --muted: #8FA2B6; --line: #22384F; --nav-bg: #0C1D31;
+  --accent: #F2C400; --accent-ink: #0A1522; --accent-text: #F2C400; --lane: #E5E7EB; --soft: rgba(242, 196, 0, .14); --hover: #183049; --ring: rgba(242, 196, 0, .35);
+    --db-warm: #8FA2B6; --db-violet-2: #7A6400;
+  --shadow-xs: none; --shadow-sm: none; --shadow-lg: 0 20px 48px rgba(0, 0, 0, .5);
+}
+.staff-mode body { font-size: 14px; letter-spacing: -.003em; }
+.staff-mode :focus-visible { outline: 2px solid var(--accent-text); outline-offset: 2px; }
+
+/* ---------- Шапка: компактная строка «логотип — должность и ФИО» ---------- */
+.staff-mode .hero { padding: 16px 0 4px; }
+.staff-mode .hero-top { align-items: center; }
+.staff-mode .brand { font: 900 26px/1 "Unbounded", "Arial Black", sans-serif; letter-spacing: -.02em; }
+.staff-mode .brand .men { background: var(--soft); color: var(--accent-text); top: .1em; }
+.staff-mode .lanes, .staff-mode #greeting { display: none; }
+.staff-mode .staff-badge { flex-direction: row; align-items: center; gap: 8px; padding: 0; }
+.staff-mode .staff-badge .role { order: 2; background: var(--soft); color: var(--accent-text); font-weight: 600; font-size: 11.5px; border-radius: 999px; padding: 3px 9px; }
+.staff-mode .staff-badge .person { font-weight: 600; font-size: 13px; }
+.staff-mode .staff-logout { font-weight: 500; text-decoration: none; }
+.staff-mode .staff-logout:hover { color: var(--ink); }
+
+/* ---------- Меню сотрудника: отдельные плитки с иконками ---------- */
+.staff-mode .admin-bar:not([hidden]) { gap: 8px; margin-top: 16px; }
+.staff-mode .admin-btn { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; min-height: 66px; padding: 10px 6px;
+  border: 1px solid var(--line); border-radius: 10px; background: var(--surface); color: var(--ink); box-shadow: var(--shadow-xs);
+  font-size: 13px; font-weight: 600; transition: border-color .15s, background .15s, box-shadow .15s; }
+.staff-mode .admin-btn:hover { border-color: color-mix(in srgb, var(--accent) 35%, var(--line)); box-shadow: var(--shadow-sm); }
+.staff-mode .admin-btn:active { background: var(--hover); }
+.staff-mode .admin-btn::before { content: ""; flex: none; width: 20px; height: 20px; background: currentColor; opacity: .75;
+  -webkit-mask: var(--icon) center / contain no-repeat; mask: var(--icon) center / contain no-repeat; }
+.staff-mode .admin-btn.has-new { background: var(--soft); color: var(--accent-text); border-color: color-mix(in srgb, var(--accent) 40%, transparent); }
+.staff-mode .admin-btn.has-new::before { opacity: 1; }
+.staff-mode .admin-btn.drag-ghost { box-shadow: var(--shadow-lg); border-radius: 10px; }
+#adminHomeButton { --icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='3' y='3' width='7' height='9' rx='1.5'/%3E%3Crect x='14' y='3' width='7' height='5' rx='1.5'/%3E%3Crect x='14' y='12' width='7' height='9' rx='1.5'/%3E%3Crect x='3' y='16' width='7' height='5' rx='1.5'/%3E%3C/svg%3E"); }
+#adminOrdersButton { --icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='22 12 16 12 14 15 10 15 8 12 2 12'/%3E%3Cpath d='M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z'/%3E%3C/svg%3E"); }
+#adminCustomersButton { --icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2'/%3E%3Ccircle cx='9' cy='7' r='4'/%3E%3Cpath d='M22 21v-2a4 4 0 0 0-3-3.87'/%3E%3Cpath d='M16 3.13a4 4 0 0 1 0 7.75'/%3E%3C/svg%3E"); }
+#adminTasksButton { --icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='3' y='3' width='18' height='18' rx='3'/%3E%3Cpath d='m9 12 2 2 4-4'/%3E%3C/svg%3E"); }
+#adminProductsButton { --icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z'/%3E%3Cpath d='m3.3 7 8.7 5 8.7-5'/%3E%3Cpath d='M12 22V12'/%3E%3C/svg%3E"); }
+#adminAnalyticsButton { --icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 3v18h18'/%3E%3Cpath d='M18 17V9'/%3E%3Cpath d='M13 17V5'/%3E%3Cpath d='M8 17v-3'/%3E%3C/svg%3E"); }
+#adminStaffButton { --icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='3' y='4' width='18' height='16' rx='2'/%3E%3Ccircle cx='9' cy='10' r='2'/%3E%3Cpath d='M15 9h3'/%3E%3Cpath d='M15 13h3'/%3E%3Cpath d='M6 16.5a3 3 0 0 1 6 0'/%3E%3C/svg%3E"); }
+
+/* ---------- Каталог ---------- */
+.staff-mode .cats { gap: 6px; padding: 16px 0 12px; }
+.staff-mode .chip { padding: 6px 12px; border-radius: 999px; border: 1px solid var(--line); background: var(--surface); font-size: 13px; font-weight: 500; }
+.staff-mode .chip::after { display: none; }
+.staff-mode .chip[aria-pressed="true"] { background: var(--ink); border-color: var(--ink); color: var(--surface); }
+.staff-mode .sort-hint { font-size: 12.5px; }
+.staff-mode .pic { border-radius: 10px; }
+.staff-mode .pic::after { display: none; }
+.staff-mode .card .name { font-weight: 500; font-size: 13.5px; }
+.staff-mode .cost b { font-weight: 700; font-size: 14px; letter-spacing: 0; }
+.staff-mode .badge { border-radius: 6px; font-weight: 600; font-size: 11.5px; }
+.staff-mode .drag-ghost { border-radius: 10px; box-shadow: var(--shadow-lg); }
+
+/* ---------- «Товары»: каталог, справа от категорий — «Добавить» ---------- */
+.staff-mode .cat-tools { display: flex; flex: none; gap: 8px; align-items: center; }
+.staff-mode .cat-tools .primary, .staff-mode .cat-tools .ghost { width: auto; margin: 0; padding: 8px 14px; font-size: 13.5px; white-space: nowrap; }
+.staff-mode .admin-btn[aria-current] { border-color: var(--accent-text); box-shadow: 0 0 0 1px var(--accent); color: var(--accent-text); }
+.staff-mode .admin-btn[aria-current]::before { opacity: 1; }
+
+/* ---------- Разделы сотрудника открываются на странице, а не во всплывающем окне ---------- */
+.staff-mode .scrim { display: none; }
+.staff-mode .sheet, .staff-mode .sheet.open { position: relative; inset: auto; width: auto; max-height: none; overflow: visible; transform: none; transition: none;
+  border-radius: 0; background: transparent; box-shadow: none; padding-bottom: 120px; z-index: auto; }
+.staff-mode .sheet:not(.open) { display: none; }
+.staff-mode.sheet-open #shopPage { display: none; }
+.staff-mode .sheet-inner { max-width: none; padding: 18px 0 0; animation: rise .2s var(--ease) both; }
+.staff-mode .sheet .grab { display: none; }
+/* «Назад» — только во вложенных экранах (например, чат заказа), где нет своей ссылки назад */
+.staff-mode .sheet:not(.has-back) .close, .staff-mode .sheet:has(.adm-back, .an-back) .close { display: none; }
+.staff-mode .sheet .close { position: static; display: inline-flex; align-items: center; gap: 4px; width: auto; height: auto; margin-top: 16px; padding: 6px 12px;
+  font-size: 0; }
+.staff-mode .sheet .close::before { content: "← Назад"; font-size: 13px; font-weight: 500; }
+.staff-mode .sheet .close + .sheet-inner { padding-top: 10px; }
+
+/* ---------- Окно раздела (шторка) ---------- */
+.staff-mode .scrim { background: rgba(15, 23, 42, .4); }
+.staff-mode .sheet-inner > h2:first-child, .staff-mode .sheet-inner > h3:first-child { font-size: 18px; font-weight: 700; letter-spacing: -.01em; }
+.staff-mode .close { width: 32px; height: 32px; border-radius: 8px; border: 1px solid var(--line); background: var(--surface); font-size: 14px; color: var(--muted); }
+.staff-mode .close:hover { background: var(--hover); color: var(--ink); }
+.staff-mode .p-name { font-weight: 700; font-size: 18px; letter-spacing: -.01em; }
+.staff-mode .p-pic { border-radius: 12px; }
+.staff-mode .label { font-weight: 600; font-size: 13px; }
+.staff-mode .adm-sub, .staff-mode .p-desc { font-size: 13px; }
+.staff-mode .adm-back { font-size: 13px; font-weight: 500; }
+.staff-mode .adm-back:hover { color: var(--ink); }
+
+/* ---------- Кнопки ---------- */
+.staff-mode .primary { border-radius: 8px; padding: 11px 16px; font-size: 14px; font-weight: 600; box-shadow: var(--shadow-xs); transition: background .15s, transform .14s var(--ease); }
+.staff-mode .primary:hover { background: color-mix(in srgb, var(--accent) 88%, #000); }
+.staff-mode .primary.danger:hover { background: color-mix(in srgb, var(--danger) 88%, #000); }
+.staff-mode .primary.sm { padding: 9px 14px; font-size: 13.5px; }
+.staff-mode .ghost, .staff-mode .adm-del { border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--ink); font-weight: 500; font-size: 13.5px; padding: 9px 14px; box-shadow: var(--shadow-xs); }
+.staff-mode .ghost:hover, .staff-mode .adm-del:hover { background: var(--hover); }
+.staff-mode .ghost.danger { border-color: color-mix(in srgb, var(--danger) 40%, var(--line)); color: var(--danger); }
+.staff-mode .ghost.danger[data-armed], .staff-mode .adm-del[data-armed] { background: var(--danger); border-color: var(--danger); color: #fff; }
+.staff-mode .link { font-size: 13px; text-decoration-color: color-mix(in srgb, currentColor 40%, transparent); }
+.staff-mode .link:hover { color: var(--ink); }
+.staff-mode .ord-link { border-radius: 8px; background: var(--accent); color: var(--accent-ink); font-weight: 600; }
+
+/* ---------- Поля ввода ---------- */
+.staff-mode .field span { font-weight: 500; font-size: 12.5px; color: var(--muted); }
+.staff-mode .field input, .staff-mode .field select, .staff-mode .field textarea, .staff-mode .crow input[type=text], .staff-mode .vqty {
+  border: 1px solid var(--line); border-radius: 8px; background: var(--surface); padding: 10px 12px; box-shadow: var(--shadow-xs); transition: border-color .15s, box-shadow .15s; }
+.staff-mode .field input:focus, .staff-mode .field select:focus, .staff-mode .field textarea:focus, .staff-mode .crow input[type=text]:focus, .staff-mode .vqty:focus {
+  outline: none; border-color: var(--accent-text); box-shadow: 0 0 0 3px var(--ring); }
+.staff-mode .way { border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
+.staff-mode .way b { font-weight: 600; }
+.staff-mode .way[aria-checked="true"] { border-color: var(--accent-text); box-shadow: 0 0 0 3px var(--ring); background: var(--surface); }
+.staff-mode .way[aria-checked="true"] b::before { color: var(--accent-text); }
+.staff-mode .size, .staff-mode .qty button { border-width: 1px; border-radius: 8px; }
+.staff-mode .check-line input { accent-color: var(--accent-text); }
+
+/* ---------- Карточки заказов и статусы ---------- */
+.staff-mode .ord { border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; background: var(--surface); box-shadow: var(--shadow-xs); }
+.staff-mode .ord.st-new { border-color: var(--line); box-shadow: inset 3px 0 0 var(--accent), var(--shadow-xs); }
+.staff-mode .ord-top b { font-weight: 700; font-size: 15px; }
+.staff-mode .ord-top time { font-size: 12.5px; }
+.staff-mode .ord-st { border-radius: 999px; font-weight: 600; font-size: 11.5px; padding: 2px 9px; background: var(--hover); }
+.staff-mode .st-new .ord-st { background: var(--soft); color: var(--accent-text); }
+.staff-mode .ord-sum b { font-weight: 700; }
+.staff-mode .ord-note, .staff-mode .req { border-radius: 8px; }
+.staff-mode .req { border: 1px solid var(--line); background: var(--bg); }
+.staff-mode .ord-contacts dd { font-weight: 600; }
+
+/* ---------- Аналитика: карточки показателей и переключатель вкладок ---------- */
+.staff-mode .an-tabs { gap: 0; padding: 3px; border-radius: 10px; background: var(--hover); }
+.staff-mode .an-tabs .way { border: 0; border-radius: 8px; background: transparent; padding: 8px; box-shadow: none; }
+.staff-mode .an-tabs .way small { display: none; }
+.staff-mode .an-tabs .way[aria-checked="true"] { background: var(--surface); box-shadow: var(--shadow-sm); }
+.staff-mode .an-total, .staff-mode .an-card { border: 1px solid var(--line); border-radius: 12px; background: var(--surface); box-shadow: var(--shadow-xs); padding: 14px 16px; }
+.staff-mode .an-total span, .staff-mode .an-card span { order: -1; font-weight: 500; font-size: 12.5px; color: var(--muted); }
+.staff-mode .an-total b { font-weight: 800; font-size: 26px; letter-spacing: -.02em; }
+.staff-mode .an-card b { font-weight: 700; font-size: 20px; letter-spacing: -.01em; }
+.staff-mode .an-h { font-size: 14px; font-weight: 600; letter-spacing: -.005em; }
+.staff-mode .an-staff:hover { background: var(--hover); }
+
+/* ---------- Клиенты и задачи ---------- */
+.staff-mode .cl-tags i { background: var(--hover); font-weight: 500; }
+.staff-mode .cl-tag { border-width: 1px; background: var(--surface); font-weight: 500; }
+.staff-mode .cl-tag[aria-pressed="true"] { background: var(--soft); border-color: color-mix(in srgb, var(--accent) 40%, transparent); color: var(--accent-text); }
+.staff-mode .cl-note { border-radius: 10px; }
+.staff-mode .tk { border-bottom: 0; border-radius: 10px; padding: 10px 8px; margin: 0 -8px; }
+.staff-mode .tk.open { padding: 10px 8px; }
+.staff-mode .tk:hover { background: var(--hover); }
+.staff-mode .tk.open { background: var(--soft); }
+.staff-mode .tk-check { width: 22px; height: 22px; border-width: 1.5px; border-radius: 6px; font-size: 12px; margin-top: 1px; }
+.staff-mode .tk-title { font-weight: 500; }
+
+/* ---------- Таблица остатков в карточке товара ---------- */
+.staff-mode .vhead, .staff-mode .vcolor { border-width: 1px; border-radius: 8px; font-weight: 600; }
+.staff-mode .vcell, .staff-mode .vqty { border-width: 1px; border-radius: 8px; border-color: var(--line); background: var(--soft); font-weight: 600; }
+.staff-mode .vqty.zero, .staff-mode .vcell.off { background: transparent; }
+.staff-mode .cphoto, .staff-mode .crow input[type=color] { border-width: 1px; border-radius: 8px; }
+
+.staff-mode .toast { border-radius: 10px; font-weight: 500; box-shadow: var(--shadow-lg); }
+
+/* ---------- «Главная»: дашборд ---------- */
+.db-head { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 12px; }
+.db-title { margin: 0; font-size: 22px; font-weight: 800; letter-spacing: -.02em; }
+.db-head .adm-sub { margin: 2px 0 0; }
+.db-head .adm-sub::first-letter { text-transform: uppercase; }
+.db-tools { display: flex; gap: 8px; align-items: center; }
+.db-periods { display: flex; padding: 3px; border-radius: 10px; background: var(--hover); }
+.db-periods button { border: 0; background: transparent; border-radius: 8px; padding: 6px 10px; font-size: 13px; font-weight: 500; color: var(--muted); white-space: nowrap; }
+.db-periods button[aria-checked="true"] { background: var(--surface); color: var(--ink); box-shadow: var(--shadow-sm); font-weight: 600; }
+.staff-mode .db-refresh { margin: 0; width: 36px; height: 36px; padding: 0; font-size: 17px; }
+.db-loading { padding: 40px 0; text-align: center; }
+
+.db-alerts { display: grid; grid-template-columns: repeat(auto-fit, minmax(96px, 1fr)); gap: 8px; margin-top: 16px; }
+.db-alert { display: flex; flex-direction: column; align-items: flex-start; gap: 1px; text-align: left; padding: 10px 12px;
+  border: 1px solid var(--line); border-radius: 12px; background: var(--surface); box-shadow: var(--shadow-xs); color: var(--ink); }
+.db-alert:hover { border-color: color-mix(in srgb, var(--accent) 35%, var(--line)); }
+.db-alert b { font-size: 22px; line-height: 1.2; font-weight: 800; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+.db-alert span { font-weight: 600; font-size: 13.5px; }
+.db-alert small { color: var(--muted); font-size: 12px; line-height: 1.3; }
+@media (min-width: 700px) { .db-alerts { gap: 14px; } .db-alert { padding: 12px 16px; } }
+.db-alert.hot { background: var(--soft); border-color: color-mix(in srgb, var(--accent) 30%, transparent); }
+.db-alert.hot b { color: var(--accent-text); }
+
+.db-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-top: 10px; }
+.db-card { min-width: 0; padding: 14px 16px; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); box-shadow: var(--shadow-sm); }
+.db-sales, .db-clients, .db-revenue, .db-pay { grid-column: 1 / -1; }
+.db-label { display: block; color: var(--muted); font-size: 12.5px; font-weight: 500; }
+.db-card b { display: block; font-size: 22px; font-weight: 800; letter-spacing: -.02em; font-variant-numeric: tabular-nums; line-height: 1.25; }
+.db-kpi { display: flex; flex-direction: column; gap: 8px; }
+.db-kpi b { font-size: 20px; }
+.db-spark { display: block; width: 100%; height: 40px; }
+.db-delta { display: inline-block; margin-top: 2px; font-size: 11.5px; font-weight: 600; color: var(--muted); }
+.db-delta.up { color: var(--ok); }
+.db-delta.down { color: var(--danger); }
+.db-card-h { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; }
+.db-card-h .adm-sub { margin: 0; white-space: nowrap; }
+
+.db-bars { display: flex; align-items: stretch; gap: 8px; height: 150px; margin-top: 14px; }
+.db-bars.dense { gap: 3px; }
+.db-bar { flex: 1; min-width: 0; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; gap: 6px; }
+.db-bar i { display: block; width: 100%; max-width: 22px; border-radius: 6px 6px 3px 3px; transition: height .4s var(--ease); }
+.db-bars.dense .db-bar i { border-radius: 3px 3px 1px 1px; }
+.db-bar i.violet { background: linear-gradient(to top, var(--db-violet-2), var(--accent)); }
+.db-bar i.warm { background: linear-gradient(to top, color-mix(in srgb, var(--db-warm) 45%, var(--surface)), var(--db-warm)); }
+.db-bar span { height: 14px; font-size: 11px; color: var(--muted); white-space: nowrap; }
+
+.db-legend { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 12px; color: var(--muted); }
+.db-legend span::before { content: ""; display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; background: var(--accent); }
+.db-legend .l2::before { background: var(--db-warm); }
+.db-line { display: grid; grid-template-columns: auto 1fr; gap: 10px; margin-top: 14px; }
+.db-yaxis { display: flex; flex-direction: column; justify-content: space-between; height: 180px; font-size: 11px; color: var(--muted); text-align: right; }
+.db-plot svg { display: block; width: 100%; height: 180px; overflow: visible; }
+.db-plot path { fill: none; stroke-width: 2.5; stroke-linecap: round; }
+.db-l1 { stroke: var(--accent); }
+.db-l2 { stroke: var(--db-warm); stroke-dasharray: 5 5; opacity: .9; }
+.db-grid line, line.db-grid { stroke: var(--line); stroke-width: 1; }
+.db-xaxis { display: flex; justify-content: space-between; margin-top: 6px; font-size: 11px; color: var(--muted); }
+.db-xaxis span { flex: 1; text-align: center; }
+.db-xaxis span:first-child { text-align: left; }
+.db-xaxis span:last-child { text-align: right; }
+
+.db-donut-wrap { position: relative; width: 150px; margin: 10px auto 4px; }
+.db-donut { display: block; width: 150px; height: 150px; }
+.db-ring { fill: none; stroke: var(--hover); stroke-width: 16; }
+.db-ring.cash { stroke: var(--accent); stroke-linecap: butt; }
+.db-ring.card { stroke: var(--db-warm); }
+.db-donut-wrap > span { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; font-weight: 800; font-size: 20px; }
+.db-donut-wrap small { font-weight: 500; font-size: 12px; color: var(--muted); }
+.db-pay-split { display: flex; justify-content: space-between; gap: 10px; margin-top: 8px; }
+.db-pay-split > div:last-child { text-align: right; }
+.db-pay-split b { font-size: 16px; }
+.db-pay-split small { font-size: 12px; color: var(--muted); }
+.db-pay-split small::before { content: ""; display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; background: var(--accent); }
+.db-pay-split small.card::before { background: var(--db-warm); }
+
+@media (min-width: 700px) {
+  .db-grid { grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 14px; }
+  .db-kpi { grid-column: span 6; flex-direction: row; align-items: flex-end; justify-content: space-between; }
+  .db-kpi .db-spark { width: 140px; flex: none; }
+  .db-sales, .db-clients { grid-column: span 6; }
+  .db-revenue { grid-column: span 8; }
+  .db-pay { grid-column: span 4; display: flex; flex-direction: column; }
+  .db-pay .db-donut-wrap { margin-top: auto; }
+}
+@media (min-width: 1200px) {
+  /* как на макете: слева две карточки друг под другом, справа два графика со столбиками */
+  .db-kpi { grid-column: 1 / span 3; }
+  .db-kpi + .db-kpi { grid-row: 2; }
+  .db-kpi .db-spark { width: 110px; }
+  .db-sales { grid-column: 4 / span 5; grid-row: 1 / span 2; }
+  .db-clients { grid-column: 9 / span 4; grid-row: 1 / span 2; }
+}
+
+/* ---------- Компьютер: боковое меню слева, каталог справа ---------- */
+@media (min-width: 900px) {
+  html:not(.in-telegram).staff-mode .wrap { max-width: none; padding: 0; display: grid; grid-template-columns: 240px minmax(0, 1fr); align-items: start; }
+  html:not(.in-telegram).staff-mode .hero { grid-column: 1; grid-row: 1 / span 5; position: sticky; top: 0; height: 100vh; overflow-y: auto;
+    display: flex; flex-direction: column; padding: 20px 12px; background: var(--surface); border-right: 1px solid var(--line); }
+  html:not(.in-telegram).staff-mode .hero-top { display: contents; }
+  html:not(.in-telegram).staff-mode .brand { padding: 4px 10px 0; font-size: 24px; }
+  html:not(.in-telegram).staff-mode .staff-badge { order: 3; margin-top: auto; max-width: none; flex-direction: column; align-items: flex-start; gap: 4px;
+    padding: 12px 10px 0; border-top: 1px solid var(--line); text-align: left; }
+  html:not(.in-telegram).staff-mode .staff-badge .role { order: 0; }
+  html:not(.in-telegram).staff-mode .admin-bar:not([hidden]) { order: 2; display: flex; flex-direction: column; gap: 2px; margin: 24px 0 16px; }
+  html:not(.in-telegram).staff-mode .admin-btn { flex-direction: row; justify-content: flex-start; gap: 10px; min-height: 0; padding: 9px 10px;
+    border: 0; border-radius: 8px; background: transparent; box-shadow: none; color: var(--muted); font-size: 14px; font-weight: 500; text-align: left; }
+  html:not(.in-telegram).staff-mode .admin-btn:hover { background: var(--hover); color: var(--ink); }
+  html:not(.in-telegram).staff-mode .admin-btn::before { width: 18px; height: 18px; }
+  html:not(.in-telegram).staff-mode .admin-btn.has-new { background: var(--soft); color: var(--accent-text); }
+  html:not(.in-telegram).staff-mode .admin-btn.drag-ghost { background: var(--surface); }
+  html:not(.in-telegram).staff-mode #shopPage { grid-column: 2; width: 100%; max-width: 1240px; padding: 8px 40px 120px; }
+  html:not(.in-telegram).staff-mode .sheet, html:not(.in-telegram).staff-mode .sheet.open { grid-column: 2; grid-row: 1; width: 100%; max-width: 920px;
+    position: relative; left: auto; top: auto; max-height: none; overflow: visible; transform: none; border-radius: 0; box-shadow: none; padding: 8px 40px 120px; }
+  html:not(.in-telegram).staff-mode .sheet-inner { padding: 24px 0 0; display: block; }
+  html:not(.in-telegram).staff-mode .sheet:has(.db-head) { max-width: 1320px; }
+  html:not(.in-telegram).staff-mode .sheet .close { margin-top: 24px; }
+  html:not(.in-telegram).staff-mode .admin-btn[aria-current] { background: var(--hover); color: var(--ink); box-shadow: none; }
+  html:not(.in-telegram).staff-mode .admin-btn[aria-current].has-new { background: var(--soft); color: var(--accent-text); }
+  html:not(.in-telegram).staff-mode .cats { padding-top: 24px; }
+  html:not(.in-telegram).staff-mode .grid { grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 20px 16px; }
+}
+.db-unknown { margin: 8px 0 0; font-size: 12px; }
+
+/* =====================================================================
+   CRM в фирменном тёмно-синем: шапка с меню (на компьютере — боковое меню) тёмно-синие,
+   открытый раздел и новые события — жёлтым, как в магазине.
+   ===================================================================== */
+.staff-mode .hero { margin: 0 -16px; padding: 16px 16px 16px; background: var(--nav-bg); color: var(--nav-ink); border-radius: 0 0 18px 18px; }
+.staff-mode .brand { color: var(--nav-ink); }
+.staff-mode .brand .men { background: var(--accent); color: var(--accent-ink); }
+.staff-mode .staff-badge .role { background: var(--accent); color: var(--accent-ink); }
+.staff-mode .staff-badge .person { color: var(--nav-ink); }
+.staff-mode .staff-logout { color: var(--nav-muted); }
+.staff-mode .staff-logout:hover { color: var(--nav-ink); }
+.staff-mode .admin-btn { background: var(--nav-hover); border-color: var(--nav-line); color: var(--nav-ink); box-shadow: none; }
+.staff-mode .admin-btn:hover { border-color: color-mix(in srgb, var(--accent) 50%, transparent); box-shadow: none; }
+.staff-mode .admin-btn:active { background: rgba(255, 255, 255, .14); }
+.staff-mode .admin-btn::before { opacity: .8; }
+.staff-mode .admin-btn[aria-current] { background: rgba(242, 196, 0, .14); border-color: var(--accent); box-shadow: none; color: var(--accent); }
+.staff-mode .admin-btn.has-new { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.staff-mode .admin-btn.drag-ghost { background: var(--nav-bg); }
+.staff-mode .chip[aria-pressed="true"], .staff-mode .db-periods button[aria-checked="true"] { background: var(--nav-bg); border-color: var(--nav-bg); color: #fff; }
+.staff-mode .db-title { color: var(--ink); }
+@media (min-width: 900px) {
+  html:not(.in-telegram).staff-mode .hero { margin: 0; border-radius: 0; border-right: 0; background: var(--nav-bg); }
+  html:not(.in-telegram).staff-mode .staff-badge { border-top-color: var(--nav-line); }
+  html:not(.in-telegram).staff-mode .admin-btn { background: transparent; color: var(--nav-muted); }
+  html:not(.in-telegram).staff-mode .admin-btn:hover { background: var(--nav-hover); color: var(--nav-ink); }
+  html:not(.in-telegram).staff-mode .admin-btn[aria-current] { background: var(--nav-hover); color: var(--nav-ink); box-shadow: inset 3px 0 0 var(--accent); }
+  html:not(.in-telegram).staff-mode .admin-btn[aria-current]::before { color: var(--accent); background: var(--accent); }
+  html:not(.in-telegram).staff-mode .admin-btn.has-new, html:not(.in-telegram).staff-mode .admin-btn[aria-current].has-new { background: var(--accent); color: var(--accent-ink); }
+  html:not(.in-telegram).staff-mode .admin-btn.has-new::before { background: var(--accent-ink); }
+}
+
+/* ---------- История заказа (нажатие на заголовок заказа) и возвраты ---------- */
+.staff-mode .ord-top-btn { width: 100%; border: 0; background: none; padding: 0; color: inherit; font: inherit; text-align: left; cursor: pointer; flex-wrap: wrap; }
+.staff-mode .ord-hist-t { flex-basis: 100%; font-size: 12px; color: var(--muted); }
+.staff-mode .ord-top-btn:hover .ord-hist-t { color: var(--ink); }
+@media (min-width: 560px) { .staff-mode .ord-top-btn { flex-wrap: nowrap; } .staff-mode .ord-hist-t { flex-basis: auto; order: 9; margin-left: 4px; } }
+.staff-mode .ord-hist { list-style: none; margin: 10px 0 4px; padding: 10px 12px; border-radius: 8px; background: var(--hover); font-size: 13px; }
+.staff-mode .ord-hist li { position: relative; padding: 0 0 10px 16px; }
+.staff-mode .ord-hist li:last-child { padding-bottom: 0; }
+.staff-mode .ord-hist li::before { content: ""; position: absolute; left: 0; top: 5px; width: 7px; height: 7px; border-radius: 50%; background: var(--ink); }
+.staff-mode .ord-hist li:not(:last-child)::after { content: ""; position: absolute; left: 3px; top: 14px; bottom: 0; width: 1px; background: var(--line); }
+.staff-mode .ord-hist time { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.staff-mode .ord-hist p { margin: 1px 0 0; overflow-wrap: anywhere; }
+.staff-mode .ord-hist small { color: var(--muted); }
+.staff-mode .ord-ret { margin: 10px 0 0; padding: 10px 12px; border-radius: 8px; background: var(--soft); font-size: 13.5px; overflow-wrap: anywhere; }
+.staff-mode .ord-ret p { margin: 0; }
+.staff-mode .ord-ret p + p { margin-top: 4px; }
+.staff-mode .ord-ret small { display: block; margin-top: 4px; color: var(--muted); }
+.staff-mode .st-return_requested .ord-st, .staff-mode .st-return_approved .ord-st { background: var(--soft); color: var(--accent-text); }
+.staff-mode .ord.st-return_requested { box-shadow: inset 3px 0 0 var(--accent), var(--shadow-xs); }
+.staff-mode .an-export { width: auto; margin: 4px 0 8px; padding: 7px 14px; font-size: 13px; }
+
+/* Задачи: лента дат */
+.tk-days { display: flex; gap: 6px; overflow-x: auto; margin: 14px -2px 4px; padding: 2px 2px 6px; scrollbar-width: thin; }
+.tk-day { position: relative; flex: none; width: 54px; display: flex; flex-direction: column; align-items: center; gap: 1px; padding: 6px 0 5px;
+  border: 1px solid var(--line); border-radius: 10px; background: var(--surface); color: var(--ink); cursor: pointer; font: inherit; }
+.tk-day small { font-size: 11px; color: var(--muted); text-transform: lowercase; }
+.tk-day b { font-size: 17px; font-weight: 700; line-height: 1.2; }
+.tk-day i { font-style: normal; min-width: 18px; height: 16px; padding: 0 4px; border-radius: 8px; font-size: 11px; font-weight: 700; line-height: 16px; text-align: center; }
+.tk-day i:not(:empty) { background: var(--accent); color: var(--accent-ink); }
+.tk-day.wknd small { color: var(--danger); }
+.tk-day.late { border-color: var(--danger); }
+.tk-day.late i:not(:empty) { background: var(--danger); color: #fff; }
+.tk-day:hover { background: var(--hover); }
+.tk-day[aria-pressed="true"] { background: var(--ink); border-color: var(--ink); color: var(--surface); }
+.tk-day[aria-pressed="true"] small { color: inherit; opacity: .75; }
+.tk-pick input { position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; height: 100%; }
+.tk-pick input::-webkit-calendar-picker-indicator { position: absolute; inset: 0; width: 100%; height: 100%; cursor: pointer; }
+
+/* ---------- Компьютер: боковое меню чуть крупнее (просьба Расула: среднее между 240px и 300px) ---------- */
+@media (min-width: 900px) {
+  html:not(.in-telegram).staff-mode .wrap { grid-template-columns: 270px minmax(0, 1fr); }
+  html:not(.in-telegram).staff-mode .hero { padding: 23px 14px; }
+  html:not(.in-telegram).staff-mode .brand { font-size: 27px; }
+  html:not(.in-telegram).staff-mode .admin-bar:not([hidden]) { gap: 4px; margin: 27px 0 18px; }
+  html:not(.in-telegram).staff-mode .admin-btn { gap: 12px; padding: 11px 12px; border-radius: 9px; font-size: 15.5px; }
+  html:not(.in-telegram).staff-mode .admin-btn::before { width: 21px; height: 21px; }
+  html:not(.in-telegram).staff-mode .staff-badge { padding: 14px 12px 0; }
+}
+
+/* ---------- «Отзывы» ---------- */
+#adminReviewsButton { --icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m12 2 3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z'/%3E%3C/svg%3E"); }
+.staff-mode .adm-rv { padding: 14px 16px; }
+.staff-mode .adm-rv-prod { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; font-size: 14px; }
+.staff-mode .adm-rv-prod .thumb { flex: none; width: 40px; height: 40px; border-radius: 8px; }
+.staff-mode .adm-rv.rv-hidden { opacity: .6; }
+.staff-mode .adm-rv .field { margin-top: 10px; }
+.staff-mode .adm-rv .rv-tools .danger { color: var(--danger); }
+
+/* ---------- «Склад» ---------- */
+#adminWarehouseButton { --icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 21V8l9-5 9 5v13'/%3E%3Cpath d='M7 21v-8h10v8'/%3E%3Cpath d='M7 17h10'/%3E%3C/svg%3E"); }
+.staff-mode .wh-row { display: grid; grid-template-columns: 44px 1fr auto; gap: 12px; align-items: center; width: 100%; padding: 10px 8px; margin: 0 -8px;
+  border: 0; border-radius: 10px; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.staff-mode .wh-row:hover { background: var(--hover); }
+.staff-mode .wh-row .thumb, .staff-mode .wh-head .thumb { width: 44px; height: 44px; border-radius: 8px; flex: none; }
+.staff-mode .wh-main, .staff-mode .wh-side { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.staff-mode .wh-main small { color: var(--muted); font-size: 12px; }
+.staff-mode .wh-side { align-items: flex-end; font-variant-numeric: tabular-nums; }
+.staff-mode .wh-zero, .staff-mode .wh-minus { color: var(--danger); }
+.staff-mode .wh-plus { color: var(--ok); }
+.staff-mode .wh-st { font-style: normal; font-size: 11px; font-weight: 600; padding: 1px 7px; border-radius: 999px; background: var(--hover); color: var(--muted); white-space: nowrap; }
+.staff-mode .wh-st.on { background: var(--soft); color: var(--accent-text); }
+.staff-mode .wh-head { display: flex; gap: 14px; align-items: center; margin-bottom: 12px; }
+.staff-mode .wh-head .thumb { width: 64px; height: 64px; border-radius: 10px; }
+.staff-mode .wh-head .p-name { margin: 0; }
+.staff-mode .wh-head .adm-sub { margin: 2px 0 4px; }
+.staff-mode .wh-n { display: grid; place-items: center; font-variant-numeric: tabular-nums; }
+.staff-mode .wh-log { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 8px 0; border-bottom: 1px solid var(--line); font-size: 14px; }
+.staff-mode .wh-log span { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.staff-mode .wh-log small { color: var(--muted); font-size: 12px; }
+.staff-mode .vcell.wh-cell { font-variant-numeric: tabular-nums; }
+.staff-mode .vcell.wh-cell.empty:not(.off) { color: var(--danger); }

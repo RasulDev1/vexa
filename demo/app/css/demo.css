@@ -1,0 +1,41 @@
+/* Демо-версия: тонкая тёмная полоса сверху страницы */
+.demo-bar {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 14px;
+  padding: 8px 16px; background: #15161a; color: #e9eaee;
+  font: 500 13px/1.35 Manrope, system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+.demo-bar-text { min-width: 0; }
+.demo-bar-text b { color: #fff; font-weight: 700; }
+.demo-bar-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; }
+.demo-bar button, .demo-bar a {
+  font: inherit; font-weight: 600; color: #fff; text-decoration: none; white-space: nowrap; cursor: pointer;
+}
+.demo-bar button {
+  background: transparent; border: 1px solid rgba(255, 255, 255, .28); border-radius: 999px; padding: 4px 12px;
+}
+.demo-bar button:hover { border-color: rgba(255, 255, 255, .6); }
+.demo-bar button[data-armed] { background: #e8392e; border-color: #e8392e; }
+.demo-bar a:hover { text-decoration: underline; }
+
+/* Телефон: бейдж сотрудника переносится, а не вылезает за край экрана */
+@media (max-width: 899px) {
+  .staff-mode .staff-badge { flex-wrap: wrap; justify-content: flex-end; row-gap: 4px; min-width: 0; }
+}
+
+/* Демо на сайте: CRM всегда в родной светлой теме (тёмно-синее меню, жёлтые акценты), даже если в системе тёмная */
+html:root.staff-mode:not(#_) {
+  --bg: #F5F7FA; --surface: #FFFFFF; --ink: #0E2A47; --muted: #627489; --line: #E2E8EF;
+  --nav-bg: #0E2A47; --nav-ink: #FFFFFF; --nav-muted: rgba(255, 255, 255, .64); --nav-line: rgba(255, 255, 255, .12); --nav-hover: rgba(255, 255, 255, .08);
+  --accent: #F2C400; --accent-ink: #0E2A47; --accent-text: #8A6D00; --lane: #0F172A;
+  --soft: #FEF6D3; --hover: #F3F4F6; --ring: rgba(242, 196, 0, .35);
+  --shadow-xs: 0 1px 2px rgba(14, 42, 71, .05);
+  --shadow-sm: 0 1px 3px rgba(15, 23, 42, .06), 0 1px 2px rgba(15, 23, 42, .04);
+  --shadow-lg: 0 20px 48px rgba(15, 23, 42, .18);
+  --db-warm: #0E2A47; --db-violet-2: #FBE38A;
+  color-scheme: light;
+}
+html.staff-mode .demo-bar { background: #0B2340; }
+
+/* Внутри страницы «телефон + CRM» общая полоса «Демо» уже есть сверху */
+html.demo-embed .demo-bar { display: none; }
+html.demo-embed .staff-entry { display: none !important; }

@@ -1,0 +1,157 @@
+/* ---------- Заказы у персонала: контакты покупателя и очистка списка (js/admin-orders.js) ---------- */
+.ord-contacts { display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; margin: 6px 0 0; font-size: 14px; }
+.ord-contacts dt { color: var(--muted); }
+.ord-contacts dd { margin: 0; font-weight: 700; overflow-wrap: anywhere; user-select: all; font-variant-numeric: tabular-nums; }
+.ord-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 14px; margin-top: 6px; }
+.ord-tools .ghost { margin-top: 6px; }
+.ord-tools .ghost.danger { width: auto; }
+.ord-tools .link { padding: 8px 0; }
+.ord-hide { display: block; margin: 12px 0 0 auto; padding: 4px 0; }
+.ord-hide[data-armed] { color: var(--danger); font-weight: 600; }
+
+/* ---------- «Мои заказы» у покупателя: принятые / отменённые / ждут подтверждения (js/cart.js) ---------- */
+.order-groups { display: flex; flex-wrap: wrap; gap: 2px; margin: 4px 0 6px; }
+
+/* Статус «Вручён» */
+.st-delivered .ord-st { background: color-mix(in srgb, var(--muted) 16%, transparent); color: var(--muted); }
+
+/* ---------- Режим сотрудника: вместо вкладок покупателя — кнопки сотрудника (js/main.js) ---------- */
+.staff-mode #tabs, .staff-mode #addToCart, .staff-mode .cartbar { display: none !important; }
+/* Меню сотрудника: каждая кнопка — отдельная плитка, по три в ряд (на компьютере — все в один ряд) */
+.staff-mode .admin-bar:not([hidden]) { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-top: 14px; }
+.staff-mode .admin-btn { margin: 0; border: 1.5px solid var(--line); border-radius: 12px; padding: 12px 6px; font-size: 14px; line-height: 1.2; font-weight: 700;
+  background: var(--surface); color: var(--ink); font-variant-numeric: tabular-nums; }
+.staff-mode .admin-btn:active { background: color-mix(in srgb, var(--ink) 8%, var(--surface)); }
+.staff-mode .admin-btn.has-new { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+@media (min-width: 900px) { html:not(.in-telegram).staff-mode .admin-bar:not([hidden]) { grid-template-columns: none; grid-auto-flow: column; grid-auto-columns: 1fr; } }
+
+/* ---------- Вход сотрудника: «Выйти» в плашке с ФИО, ссылка для входа в «Сотрудниках» ---------- */
+.staff-logout { border: 0; background: none; padding: 2px 0; font: inherit; font-size: 12px; font-weight: 600; color: var(--muted); text-decoration: underline; cursor: pointer; }
+.staff-logout[data-armed] { color: var(--danger); }
+.staff-link { overflow-wrap: anywhere; user-select: all; }
+
+/* ---------- Порядок карточек: сотрудник перетаскивает карточки в каталоге (js/sort.js) ---------- */
+.sort-hint { display: none; }
+.staff-mode .sort-hint { display: block; margin: 0 0 10px; font-size: 13px; color: var(--muted); }
+.staff-mode .grid .card { user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
+.drag-ghost { position: fixed; z-index: 70; margin: 0; pointer-events: none; opacity: .95; transition: none !important; animation: none !important;
+  box-shadow: 0 16px 36px rgba(5, 15, 25, .28); border-radius: 16px; background: var(--bg); }
+.drag-placeholder { opacity: .25; }
+
+/* Оплата заказа и «Аналитика» */
+.ord-pay { margin: 8px 0 0; }
+.ord-pay small { color: var(--muted); font-size: 12px; }
+.an-total { display: flex; flex-direction: column; gap: 2px; margin-top: 12px; padding: 14px; border-radius: 14px; background: var(--surface); }
+.an-total b, .an-card b { font-family: var(--display); font-variant-numeric: tabular-nums; font-size: 24px; }
+.an-total span, .an-card span { font-weight: 600; font-size: 13px; }
+.an-total small, .an-card small, .an-day small { color: var(--muted); font-size: 12px; }
+.an-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 8px; }
+.an-card { display: flex; flex-direction: column; gap: 2px; padding: 12px; border-radius: 12px; border: 1.5px solid var(--line); }
+.an-card b { font-size: 18px; }
+.an-h { margin: 18px 0 4px; font-size: 15px; }
+.an-day { display: flex; justify-content: space-between; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--line); font-size: 14px; }
+.an-day span:last-child { display: flex; flex-direction: column; align-items: flex-end; font-weight: 600; font-variant-numeric: tabular-nums; }
+.an-day span:first-child { display: flex; flex-direction: column; }
+.an-tabs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin: 8px 0 4px; }
+.an-tabs .way { align-items: center; }
+.an-tabs .way b::before { display: none; }
+.an-top { margin-top: 12px; }
+.an-top .an-total { margin-top: 0; }
+.an-split { margin: 8px 0 4px; }
+.an-range { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 8px; }
+.an-range .field { margin-top: 4px; }
+.an-range .field input { padding: 10px; }
+.an-range .primary { grid-column: 1 / -1; margin-top: 8px; }
+.an-order small + small { margin-top: 1px; }
+.an-mgr { font-weight: 600; text-align: right; max-width: 45%; overflow-wrap: anywhere; }
+.an-staff { width: 100%; border: 0; border-bottom: 1px solid var(--line); background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.an-back { margin-top: 12px; }
+.an-order span:first-child { align-items: flex-start; font-weight: 400; }
+
+/* Клиенты */
+.ord-client { padding: 0; color: var(--ink); font-size: inherit; font-weight: 600; text-decoration: none; text-align: left; }
+.cl-tags { display: flex; flex-wrap: wrap; gap: 4px; margin: 3px 0 1px; }
+.cl-tags i, .cl-tag { font-style: normal; font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 99px; background: var(--line); color: var(--ink); }
+.cl-tagbar { display: flex; flex-wrap: wrap; gap: 6px; }
+.cl-tag { border: 1.5px solid var(--line); background: var(--bg); font-size: 13px; padding: 6px 12px; }
+.cl-tag[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--accent-ink, #0E2A47); }
+.cl-btn { flex: 1; color: var(--ink); font-weight: 600; margin-top: 0; display: inline-flex; justify-content: center; align-items: center; text-decoration: none; font-size: 14px; padding: 10px; }
+.cl-note { margin-top: 10px; padding: 10px 12px; border-radius: 12px; background: var(--surface); border: 1px solid var(--line); }
+.cl-note p { margin: 0 0 4px; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 14px; }
+.cl-note small { color: var(--muted); font-size: 12px; }
+.cl-note .link { font-size: 12px; padding: 0; }
+.cl-row .cl-tags + small { margin-top: 2px; }
+
+/* Задачи */
+.tk { display: flex; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--line); }
+.tk-check { flex: none; width: 28px; height: 28px; border-radius: 50%; border: 2px solid var(--line); background: var(--bg); color: transparent; font-weight: 700; font-size: 14px; }
+.tk.tk-done .tk-check { background: var(--ok); border-color: var(--ok); color: #fff; }
+.tk-check { display: grid; place-items: center; }
+.tk { cursor: pointer; border-radius: 12px; }
+.tk:hover { background: color-mix(in srgb, var(--ink) 3%, transparent); }
+.tk-actions { display: none; flex-direction: column; align-items: flex-start; gap: 8px; margin-top: 8px; cursor: default; }
+.tk.open .tk-actions { display: flex; }
+.tk.open { background: color-mix(in srgb, var(--accent) 10%, transparent); padding-left: 8px; padding-right: 8px; }
+.tk-actions .primary.sm { flex: none; }
+.tk-actions .ghost { margin-top: 0; width: auto; padding: 9px 14px; font-size: 14px; }
+.tk-confirm p { margin: 0 0 4px; font-size: 14px; font-weight: 600; }
+.tk-confirm .ord-actions { margin-top: 6px; }
+.tk.due .tk-check { border-color: var(--danger); }
+.tk-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.tk-title { margin: 0; font-weight: 600; font-size: 14px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.tk.tk-done .tk-title { text-decoration: line-through; color: var(--muted); }
+.tk.due .tk-body > small:first-of-type { color: var(--danger); }
+.tk-body small { color: var(--muted); font-size: 12px; }
+.tk-body small .link, .tk-tools .link { font-size: 12px; padding: 0; }
+.tk-tools { display: flex; gap: 14px; margin-top: 2px; }
+.tk-tg { margin-top: 18px; }
+.tk-tg .ghost { width: 100%; }
+[data-task-new] { margin-top: 8px; }
+.staff-mode .admin-btn { cursor: grab; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
+.admin-btn.drag-ghost { cursor: grabbing; box-shadow: 0 10px 24px rgba(5,15,25,.25); }
+
+/* Возвраты: статусы, форма покупателя с правилами, ответы на «Откуда вы о нас узнали?» */
+.st-return_requested .ord-st, .st-return_approved .ord-st { background: var(--accent); color: var(--accent-ink); }
+.st-returned .ord-st { background: color-mix(in srgb, var(--danger) 14%, transparent); color: var(--danger); }
+.sources { display: flex; flex-wrap: wrap; gap: 2px; margin: 2px 0 8px; }
+.sources .chip:disabled { opacity: .4; }
+.label small { font-weight: 400; color: var(--muted); }
+.ord-return { display: block; margin: 12px 0 0 auto; padding: 4px 0; }
+.ret-form { margin-top: 12px; }
+.ret-rules { margin: 4px 0 10px; padding-left: 18px; font-size: 13px; color: var(--muted); line-height: 1.45; }
+.ret-rules li + li { margin-top: 4px; }
+.sources .chip { margin: 0 6px 6px 0; padding: 7px 12px; border: 1px solid var(--line); border-radius: 999px; background: var(--surface); font-weight: 500; }
+.sources .chip::after { display: none; }
+.sources .chip[aria-pressed="true"] { background: var(--ink); border-color: var(--ink); color: var(--bg); }
+
+/* ---------- Отзывы о товарах ---------- */
+.card .rate { margin: 3px 2px 0; font-size: clamp(11px, 7.2cqi, 15px); color: var(--muted); }
+.card .rate b { color: var(--ink); font-weight: 700; }
+.card .rate b, .stars, .rate-line .stars { letter-spacing: .02em; }
+.stars { color: #F2B400; white-space: nowrap; }
+.rate-line { display: inline-flex; align-items: center; gap: 6px; margin: 4px 0 0; padding: 0; border: 0; background: none; color: var(--muted); font: inherit; font-size: 13.5px; cursor: pointer; }
+.rate-line:hover { color: var(--ink); }
+.rv { margin-top: 26px; padding-top: 18px; border-top: 1px solid var(--line); }
+.rv:empty { display: none; }
+.rv-title { margin: 0 0 10px; font-size: 18px; }
+.rv-title span { color: var(--muted); font-size: 14px; font-weight: 600; margin-left: 4px; }
+.rv-item { padding: 12px 0; border-bottom: 1px solid var(--line); }
+.rv-item:last-of-type { border-bottom: 0; }
+.rv-head { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
+.rv-body { margin: 6px 0 4px; font-size: 14px; line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere; }
+.rv-item small, .adm-rv small { color: var(--muted); font-size: 12px; }
+.rv-reply { margin-top: 8px; padding: 8px 12px; border-radius: 10px; background: color-mix(in srgb, var(--accent) 12%, transparent); font-size: 13.5px; }
+.rv-reply b { font-size: 12px; }
+.rv-reply p { margin: 3px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.rv-write { width: 100%; margin: 4px 0 6px; }
+.rv-form, .rv-mine { margin: 0 0 8px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 14px; }
+.rv-mine .rv-item { padding-top: 0; border: 0; }
+.rv-form .label, .rv-mine .label { margin-top: 0; }
+.rv-stars { display: flex; gap: 4px; margin: 2px 0 10px; }
+.rv-star { width: 40px; height: 40px; border: 0; border-radius: 10px; background: transparent; color: var(--line); font-size: 30px; line-height: 1; cursor: pointer; padding: 0; }
+.rv-star.on { color: #F2B400; }
+.rv-form textarea { width: 100%; min-height: 90px; box-sizing: border-box; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface, var(--bg)); color: var(--ink); font: inherit; font-size: 14px; resize: vertical; }
+.rv-tools { display: flex; gap: 16px; margin-top: 6px; }
+.rv-tools .link { padding: 0; font-size: 13px; }
+.rv-more { margin-top: 8px; padding: 0; }
+.ord-review { display: block; margin-top: 4px; padding: 0; font-size: 13px; }
