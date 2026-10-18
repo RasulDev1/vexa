@@ -3,7 +3,7 @@ import { $, formatPrice, formatDate, escapeHtml, pluralize, haptic, toast, stora
 import { state, api, errorMessage, useSupabase } from "./state.js?v=20261001b";
 import { watchOrders } from "./supabase.js?v=20261001b";
 import { refreshCatalog } from "./catalog.js?v=20261001b";
-import { orderItemsHtml, paymentDetails } from "./cart.js?v=20261001b";
+import { orderItemsHtml, paymentDetails, onlinePayFor, onlinePayLink, payWayOf, OFFLINE_PAY_TEXT } from "./cart.js?v=20261001b";
 import { sheetBody, openSheet } from "./nav.js?v=20261001b";
 import { chatButtonHtml, openChat, onChatEvent, hasUnread } from "./chat.js?v=20261001b";
 import { openCustomer } from "./admin-customers.js?v=20261001b";
@@ -91,7 +91,7 @@ function payFormHtml(o) {
 
 /** Как оплатили: «Оплачено картой · 5 000 ₽ · Иванов, 05.10 14:30» */
 const paymentHtml = (o) => o.payment
-  ? `<p class="ord-pay">Оплачено ${PAY_METHOD[o.payment.method] || ""} · <b>${formatPrice(o.payment.amount)}</b>${
+  ? `<p class="ord-pay">Оплачено ${o.payment.online ? `картой онлайн${o.payment.test ? " (тест)" : ""}` : PAY_METHOD[o.payment.method] || ""} · <b>${formatPrice(o.payment.amount)}</b>${
     o.payment.amount !== Number(o.total) ? ` <small>(сумма заказа ${formatPrice(Number(o.total) || 0)})</small>` : ""}${
     o.payment.by || o.payment.at ? `<br><small>${[escapeHtml(o.payment.by), o.payment.at && formatDate(o.payment.at)].filter(Boolean).join(", ")}</small>` : ""}</p>` : "";
 
@@ -292,8 +292,8 @@ async function onOrdersClick(e) {
   if (t.dataset.retSave) return saveReturn(t);
   if (t.dataset.retDone) return doneReturn(t);
   if (t.dataset.declineSave) return declineReturn(t);
-  if (t.dataset.accept) openForm = { num: Number(t.dataset.accept), type: "accept", text: storage.get("temp_last_pay", "") };
-  else if (t.dataset.reject) openForm = { num: Number(t.dataset.reject), type: "reject", text: rejectionText(state.adminOrders.find((o) => o.num === Number(t.dataset.reject))) };
+  if (t.dataset.accept) return quickAccept(t);
+  if (t.dataset.reject) openForm = { num: Number(t.dataset.reject), type: "reject", text: rejectionText(state.adminOrders.find((o) => o.num === Number(t.dataset.reject))) };
   else if (t.hasAttribute("data-cancel")) openForm = null;
   else if (t.dataset.send) return sendDecision(t);
   else if (t.dataset.pay) openForm = { num: Number(t.dataset.pay), type: "pay", method: null, amount: null };
@@ -311,6 +311,36 @@ async function onOrdersClick(e) {
   (openForm?.type === "pay" || openForm?.type === "return" ? null : $("formText"))?.focus();
 }
 
+/** «Принять» сразу принимает заказ: способ оплаты покупатель уже выбрал при оформлении.
+ *  Наличные или при получении — текст вместо реквизитов; онлайн — ссылка на оплату картой (функция online-pay).
+ *  Ссылку получить не удалось (онлайн-оплата не настроена) — открываем форму реквизитов, как раньше. */
+async function quickAccept(button) {
+  const num = Number(button.dataset.accept), order = state.adminOrders.find((o) => o.num === num);
+  const way = payWayOf(order);
+  button.disabled = true;
+  button.textContent = "Принимаем…";
+  let text = OFFLINE_PAY_TEXT[way] || "";
+  if (!text && api.onlinePayLink && onlinePayFor(order?.user?.id)) {
+    try { text = (await api.onlinePayLink(num)).url || ""; } catch {}
+  }
+  if (!text) { // онлайн-оплаты нет — менеджер впишет реквизиты сам
+    openForm = { num, type: "accept", text: storage.get("temp_last_pay", "") };
+    renderOrders();
+    return $("formText")?.focus();
+  }
+  try {
+    await api.acceptOrder(num, text, null);
+    haptic("success");
+    toast("Заказ принят");
+    openForm = null;
+    await showOrder(num);
+  } catch (error) {
+    button.disabled = false;
+    button.textContent = "Принять";
+    toast(errorMessage(error));
+  }
+}
+
 async function sendDecision(button) {
   const accept = openForm.type === "accept";
   openForm.text = $("formText").value.trim();
@@ -323,7 +353,8 @@ async function sendDecision(button) {
   button.textContent = "Отправляем…";
   try {
     if (accept) {
-      storage.set("temp_last_pay", openForm.text); // реквизиты обычно одни и те же — подставим в следующий раз
+      const own = openForm.text.replace(onlinePayLink(openForm.text), "").trim(); // ссылка на оплату у каждого заказа своя
+      if (own && !Object.values(OFFLINE_PAY_TEXT).includes(own)) storage.set("temp_last_pay", own); // реквизиты обычно одни и те же — подставим в следующий раз
       await api.acceptOrder(openForm.num, openForm.text, openForm.note);
     } else {
       await api.rejectOrder(openForm.num, openForm.text);

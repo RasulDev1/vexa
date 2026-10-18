@@ -21,3 +21,9 @@ export const SUPABASE_KEY = "";
 
 // Имя директора в демо-данных
 export const DEMO_DIRECTOR = "Директор";
+
+// Онлайн-оплата картой. В демо Stripe не используется: кнопка «Оплатить картой онлайн» открывает
+// страницу демо-оплаты (pay.html), и после «Оплатить» заказ сразу становится оплаченным. Карта не нужна.
+export const ONLINE_PAY = true;
+export const ONLINE_PAY_TESTERS = [];
+export const ONLINE_PAY_TEST = true;

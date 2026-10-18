@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<link rel="icon" href="data:,">
+<title>VEXA — демо-оплата</title>
+<link rel="stylesheet" href="css/fonts.css?v=20261018p">
+<link rel="stylesheet" href="css/app.css?v=20261018p">
+<link rel="stylesheet" href="css/demo.css?v=20261018p">
+<script>
+// Тема та же, что у демо магазина и CRM
+(function () {
+  var theme = "light";
+  try { theme = JSON.parse(localStorage.getItem("vexademo_theme")) || "light"; } catch (e) {}
+  document.documentElement.dataset.theme = theme === "dark" ? "dark" : "light";
+})();
+</script>
+<style>
+  .pay-wrap { max-width: 440px; margin: 0 auto; padding: 28px 16px 60px; }
+  .pay-card { background: var(--surface); border: 1px solid var(--line); border-radius: 18px; padding: 22px 20px; margin-top: 18px; }
+  .pay-card h2 { font: 800 20px/1.2 var(--display); margin: 0 0 6px; }
+  .pay-sum { font: 800 32px/1.1 var(--display); margin: 14px 0 4px; }
+  .pay-note { color: var(--muted); font-size: 14px; margin: 10px 0 0; }
+  .pay-ok { color: var(--ok); }
+  .pay-wrap .ghost { width: 100%; }
+</style>
+<!-- Модули ссылаются друг на друга с ?v=20261001b, карта подменяет адрес на свежий -->
+<script type="importmap">
+{
+  "imports": {
+    "./js/config.js?v=20261001b": "./js/config.js?v=20261018p",
+    "./js/core.js?v=20261001b": "./js/core.js?v=20261018p",
+    "./js/data.js?v=20261001b": "./js/data.js?v=20261018p",
+    "./js/demo.js?v=20261001b": "./js/demo.js?v=20261018p"
+  }
+}
+</script>
+<script type="module" src="js/pay.js?v=20261018p"></script>
+</head>
+<body>
+<!-- Демо-версия: вместо страницы оплаты Stripe. Карту вводить не нужно, деньги не списываются -->
+<div class="demo-bar" role="note"><span class="demo-bar-text"><b>Демо-оплата.</b> Деньги не списываются, карта не нужна.</span></div>
+<main class="pay-wrap">
+  <h1 class="brand">VEXA<span class="men">MEN</span></h1>
+  <section class="pay-card" id="payCard" aria-live="polite"><p class="pay-note">Загружаем заказ…</p></section>
+</main>
+</body>
+</html>

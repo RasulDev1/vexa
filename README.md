@@ -149,9 +149,11 @@ Permissions → Repository permissions → **Contents: Read and write** → **Ge
 оставить только магазин или только CRM, а в CRM войти директором или менеджером без пароля.
 Всё работает в браузере посетителя (`demo/app/js/demo.js`): живая база Supabase и Telegram не используются,
 заказ из магазина сразу появляется в CRM, ответ менеджера — у покупателя. «Сбросить демо» возвращает исходные данные.
+Онлайн-оплата в демо имитируется: вместо Stripe кнопка «Оплатить картой онлайн» открывает страницу `demo/app/pay.html`,
+и после «Оплатить» заказ сразу становится оплаченным (карту вводить не нужно).
 
 `demo/app/` — копия сайта с подменой базы. Отличаются от основного сайта только `index.html`, `crm.html`,
-`css/demo.css`, `catalog/catalog.json` и в `js/`: `demo.js`, `config.js`, `core.js`, `supabase.js`, `state.js`, `main.js`,
+`pay.html`, `css/demo.css`, `catalog/catalog.json` и в `js/`: `demo.js`, `pay.js`, `cart.js` (тексты про оплату), `config.js`, `core.js`, `supabase.js`, `state.js`, `main.js`,
 `admin-export.js`, `admin-customers.js`, `admin-tasks.js`, `staff-login.js`. Остальные файлы при обновлении сайта
 можно просто скопировать в `demo/app/` поверх старых.
 

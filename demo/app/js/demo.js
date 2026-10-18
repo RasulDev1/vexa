@@ -50,7 +50,8 @@ export function resetDemo() {
       if (key?.startsWith(STORAGE_PREFIX) && key !== DB_KEY) localStorage.removeItem(key);
     }
   } catch {}
-  notify([STAFF_TOPIC, userTopic(ME)], { op: "reset" });
+  // сразу, без notify: следом страница перезагружается и отложенное событие не успело бы уйти
+  try { localStorage.setItem(EVENT_KEY, JSON.stringify({ topics: [STAFF_TOPIC, userTopic(ME)], payload: { op: "reset" }, n: Math.random() })); } catch {}
 }
 
 /* ---------- Даты и форматирование ---------- */
@@ -303,8 +304,11 @@ function deliver(event) {
 
 function notify(topics, payload) {
   const event = { topics, payload, n: Math.random() };
-  try { localStorage.setItem(EVENT_KEY, JSON.stringify(event)); } catch {}
-  setTimeout(() => deliver(event), 0);
+  // Событие — после записи базы (она пишется в этом же шаге), иначе другая вкладка перечитает ещё старую базу
+  setTimeout(() => {
+    try { localStorage.setItem(EVENT_KEY, JSON.stringify(event)); } catch {}
+    deliver(event);
+  }, 0);
 }
 
 window.addEventListener("storage", (e) => {
@@ -591,6 +595,20 @@ const RPC = {
     if (!o || o.status !== "awaiting_payment") fail("staff:conflict", "40001");
     return clone(updateOrder(db, ctx, o, { status: "paid", payment_method: a.p_method, paid_amount: Math.round(amount * 100) / 100,
       paid_at: nowIso(), paid_by: me.full_name, paid_by_id: me.id }));
+  },
+  /* --- онлайн-оплата (вместо Stripe и функции online-pay — страница демо-оплаты pay.html) --- */
+  demo_pay_order: (a, ctx, db) => {
+    const o = findOrder(db, a.p_id);
+    if (!o) fail("pay:not_found", "42501");
+    return { id: o.id, total: o.total, status: o.status };
+  },
+  // Как online_pay_confirm: оплачен уже (или отменён) — ничего не меняем и возвращаем false
+  demo_pay_confirm: (a, ctx, db) => {
+    const o = findOrder(db, a.p_id);
+    if (!o || o.status !== "awaiting_payment") return false;
+    updateOrder(db, ctx, o, { status: "paid", payment_method: "card", paid_amount: Number(o.total) || 0, paid_at: nowIso(),
+      paid_by: "Онлайн-оплата (тест)", paid_by_id: null, online_pay_test: true });
+    return true;
   },
   payments_stats: (a, ctx, db) => {
     needAdmin(ctx);
@@ -920,6 +938,23 @@ const demoStorage = {
   }),
 };
 
+/* ---------- Функция online-pay: ссылка на страницу демо-оплаты вместо Stripe ---------- */
+const payUrl = (id) => new URL(`pay.html?order=${id}&sig=d${id}`, location.href).href;
+const payError = (code) => ({ data: null, error: { name: "FunctionsHttpError", context: { json: async () => ({ error: code }) } } });
+
+async function payInvoke(client, name, { action, order_id: id }) {
+  await new Promise((r) => setTimeout(r, 0));
+  if (name !== "online-pay") return payError("not_found");
+  const db = readDb(), ctx = client.context(db), o = findOrder(db, id);
+  if (action === "link") return ctx.staff ? { data: { url: payUrl(id) }, error: null } : payError("unauthorized");
+  if (!o) return payError("not_found");
+  if (action === "check") return { data: { paid: o.status === "paid", status: o.status === "paid" ? "complete" : "open" }, error: null };
+  if (action !== "create") return payError("bad_request");
+  if (o.status === "paid") return { data: { paid: true }, error: null };
+  if (o.status !== "awaiting_payment") return payError("not_awaiting");
+  return { data: { url: payUrl(id) }, error: null };
+}
+
 /* ---------- Клиент с API supabase-js ---------- */
 export function createDemoClient({ staffToken = "" } = {}) {
   const client = {
@@ -962,6 +997,7 @@ export function createDemoClient({ staffToken = "" } = {}) {
       };
     },
     storage: demoStorage,
+    functions: { invoke: (name, { body } = {}) => payInvoke(client, name, body || {}) },
   };
   return client;
 }
