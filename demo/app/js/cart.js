@@ -3,7 +3,7 @@ import { $, telegram, telegramUser, formatPrice, orderDate, escapeHtml, haptic, 
 import { DELIVERY_METHODS } from "./data.js?v=20261001b";
 import { state, api, saveCart, findProduct, cartTotal, hasServer, useSupabase, hasOrdersBackend } from "./state.js?v=20261001b";
 import { watchOrders } from "./supabase.js?v=20261001b";
-import { MANAGER_USERNAME } from "./config.js?v=20261001b";
+import { MANAGER_USERNAME, ONLINE_PAY, ONLINE_PAY_TESTERS, ONLINE_PAY_TEST } from "./config.js?v=20261001b";
 import { colorName, swatchBackground, stockLeft, refreshCatalog } from "./catalog.js?v=20261001b";
 import { productImage } from "./photos.js?v=20261001b";
 import { sheetBody, openSheet, closeSheet, setTab, openCart, syncMainButton } from "./nav.js?v=20261001b";
@@ -53,6 +53,18 @@ function changeQuantity(index, delta) {
 
 /* ---------- Оформление ---------- */
 let deliveryMethod = "cdek";
+/* Способ оплаты: онлайн — всегда; наличными — только при самовывозе; при получении — только при доставке.
+   Выбор дописывается к способу доставки в заказе («Самовывоз · оплата наличными») — его видят менеджер и бот. */
+const PAY_CHOICES = [
+  { id: "online", title: "Онлайн", hint: "Картой или переводом, ссылка придёт после подтверждения", note: "" },
+  { id: "cash", title: "Наличными", hint: "При самовывозе", note: "оплата наличными", pickup: true },
+  { id: "cod", title: "При получении", hint: "Возврат платный", note: "оплата при получении, возврат платный", pickup: false },
+];
+let payChoice = "online";
+const payChoicesFor = (delivery) => PAY_CHOICES.filter((c) => c.pickup === undefined || c.pickup === (delivery === "pickup"));
+/** Как покупатель решил платить — по способу доставки в заказе: online, cash или cod */
+export const payWayOf = (order) => /оплата наличными/.test(order?.way || "") ? "cash" : /оплата при получении/.test(order?.way || "") ? "cod" : "online";
+export const OFFLINE_PAY_TEXT = { cash: "Оплата наличными при самовывозе", cod: "Оплата при получении. Возврат платный" };
 /** «Откуда вы о нас узнали?» — спрашиваем при первом заказе с этого устройства */
 const SOURCES = ["Instagram", "ВКонтакте", "Telegram", "Авито", "Посоветовали друзья", "Увидел магазин", "Другое"];
 let source = "";
@@ -71,13 +83,18 @@ export function openCheckout() {
     <div class="ways" role="radiogroup" aria-label="Способ доставки">${DELIVERY_METHODS.map((m) =>
       `<button class="way" role="radio" data-delivery="${m.id}" aria-checked="${m.id === deliveryMethod}"><b>${m.title}</b><small>${m.hint}</small></button>`).join("")}</div>
     <div id="addressField"></div>
+    <p class="label">Способ оплаты</p>
+    <div class="ways" role="radiogroup" aria-label="Способ оплаты" id="payChoices"></div>
     ${askSource() ? `<p class="label">Откуда вы о нас узнали? <small>необязательно</small></p>
     <div class="sources">${SOURCES.map((s) => `<button class="chip" data-source="${s}" aria-pressed="${s === source}">${s}</button>`).join("")}</div>` : ""}
     <p class="hint" id="hint"></p>
     <div class="total"><span>К оплате</span><b>${formatPrice(cartTotal())}</b></div>
     <button class="primary browser-only" id="placeOrder">Подтвердить заказ</button>`;
   renderAddressField();
+  renderPayChoices();
   sheetBody.onclick = (e) => {
+    const pay = e.target.closest("[data-pay-choice]")?.dataset.payChoice;
+    if (pay) { haptic(); payChoice = pay; renderPayChoices(); }
     const method = e.target.closest("[data-delivery]")?.dataset.delivery;
     if (method) {
       haptic();
@@ -85,6 +102,7 @@ export function openCheckout() {
       sheetBody.querySelectorAll("[data-delivery]").forEach((b) => b.setAttribute("aria-checked", b.dataset.delivery === method));
       $("hint").textContent = "";
       renderAddressField();
+      renderPayChoices();
       $("address")?.focus({ preventScroll: true });
     }
     const picked = e.target.closest("[data-source]")?.dataset.source;
@@ -96,6 +114,13 @@ export function openCheckout() {
     if (e.target.id === "placeOrder") placeOrder();
   };
   openSheet("checkout", openCart);
+}
+
+function renderPayChoices() {
+  const choices = payChoicesFor(deliveryMethod);
+  if (!choices.some((c) => c.id === payChoice)) payChoice = "online"; // наличные не подходят для доставки и наоборот
+  $("payChoices").innerHTML = choices.map((c) =>
+    `<button class="way" role="radio" data-pay-choice="${c.id}" aria-checked="${c.id === payChoice}"><b>${c.title}</b><small>${c.hint}</small></button>`).join("");
 }
 
 function renderAddressField() {
@@ -136,7 +161,8 @@ export async function placeOrder() {
     const p = findProduct(line.id);
     return { ...line, name: p.name, colorName: colorName(p, line.color), price: p.price, photo: photoLink(p, line.color) };
   });
-  const order = { items, total: cartTotal(), name, phone, way: method.title, addr };
+  const pay = payChoicesFor(method.id).find((c) => c.id === payChoice);
+  const order = { items, total: cartTotal(), name, phone, way: pay?.note ? `${method.title} · ${pay.note}` : method.title, addr };
   const button = $("placeOrder");
   placingOrder = button.disabled = true;
   button.textContent = "Оформляем…";
@@ -219,6 +245,52 @@ const ORDER_STATUS = { new: "Проверяем наличие", accepted: "Жд
   return_requested: "Возврат на рассмотрении", return_approved: "Возврат одобрен", returned: "Возврат вручён" };
 export const paymentDetails = (order) => order.payDetails || order.payUrl || "";
 const isPaymentLink = (text) => /^https:\/\/\S+$/.test(text.trim());
+
+/* ---------- Онлайн-оплата картой (Stripe) ---------- */
+// Пока ONLINE_PAY выключена, онлайн-оплату видят только проверяющие из ONLINE_PAY_TESTERS (config.js)
+// Демо: вместо Stripe — страница демо-оплаты pay.html, карта не нужна
+const ONLINE_PAY_TEST_HINT = ONLINE_PAY_TEST ? "<br>Это демо: оплата имитируется, карту вводить не нужно." : "";
+export const onlinePayFor = (userId) => ONLINE_PAY || ONLINE_PAY_TESTERS.map(String).includes(String(userId));
+const onlinePayOn = () => Boolean(api.onlinePay) && onlinePayFor(telegramUser?.id);
+/** Ссылка на оплату картой, которую CRM подставила в реквизиты (функция online-pay) */
+const ONLINE_LINK = /https?:\/\/\S+\/(?:functions\/v1\/online-pay|pay\.html)\?order=\d+&sig=[0-9a-f]+/;
+export const onlinePayLink = (text) => ONLINE_LINK.exec(text || "")?.[0] || "";
+const PAY_ERRORS = { not_configured: "Онлайн-оплата пока не настроена. Оплатите по реквизитам.",
+  test_only: "Онлайн-оплата пока в тестовом режиме. Оплатите по реквизитам.",
+  not_awaiting: "Статус заказа изменился. Обновляем…", network: "Нет связи. Проверьте интернет и повторите." };
+const payingKey = "vexa_paying"; // заказ, который покупатель ушёл оплачивать, — проверим, когда вернётся
+
+async function payOnline(button) {
+  const num = Number(button.dataset.payOnline);
+  button.disabled = true;
+  button.textContent = "Открываем оплату…";
+  try {
+    const result = await api.onlinePay(num);
+    if (result?.paid) { toast("Заказ уже оплачен"); return renderMyOrders(true); }
+    storage.set(payingKey, num);
+    haptic();
+    openLink(result.url);
+  } catch (error) {
+    toast(PAY_ERRORS[error.code] || "Не удалось открыть оплату. Повторите или оплатите по реквизитам.");
+    haptic("medium");
+    if (error.code === "not_awaiting") renderMyOrders(true);
+  } finally {
+    button.disabled = false;
+    button.textContent = "Оплатить картой онлайн";
+  }
+}
+
+/** Покупатель вернулся со страницы оплаты: спрашиваем, прошла ли она (не дожидаясь события Stripe) */
+async function checkOnlinePay() {
+  const fromUrl = Number(new URLSearchParams(location.search).get("paid")) || 0;
+  const num = fromUrl || storage.get(payingKey, 0);
+  if (!num || !api.onlinePayCheck) return;
+  try {
+    const result = await api.onlinePayCheck(num);
+    if (result?.paid) { haptic("success"); toast("Оплата прошла"); }
+    if (result?.paid || result?.closed || result?.status === "canceled") storage.set(payingKey, 0);
+  } catch {}
+}
 
 function rememberOrder(order) {
   ordersGroup = "new"; // в «Моих заказах» сразу видно только что оформленный заказ
@@ -318,19 +390,26 @@ async function sendReturn(button) {
 }
 
 function myOrderHtml(o) {
-  const status = o.status || "new", details = paymentDetails(o), total = formatPrice(Number(o.total) || 0);
+  const status = o.status || "new", total = formatPrice(Number(o.total) || 0);
+  const link = onlinePayLink(paymentDetails(o)), details = paymentDetails(o).replace(link, "").trim(); // ссылку показываем кнопкой
+  const offline = OFFLINE_PAY_TEXT[payWayOf(o)]; // наличные или при получении — реквизиты не нужны
   return `<article class="ord st-${status}">
     <div class="ord-top my"><b>Заказ от ${orderDate(o.date)}</b><span class="ord-st">${ORDER_STATUS[status]}</span></div>
     ${orderItemsHtml(o, true)}
     <p class="ord-way">${escapeHtml(o.way)}${o.addr ? ": " + escapeHtml(o.addr) : ""}</p>
     <p class="ord-sum">Итого <b>${total}</b></p>
-    ${status === "accepted" && details ? `${o.note ? `<p class="ord-note">${escapeHtml(o.note)}</p>` : ""}
-      <div class="req"><p class="req-h">Реквизиты для оплаты · ${total}</p><p class="req-t">${escapeHtml(details)}</p>
+    ${status === "accepted" && o.note && (details || link || offline) ? `<p class="ord-note">${escapeHtml(o.note)}</p>` : ""}
+    ${status === "accepted" && offline ? `<p class="ord-note">${offline}.</p>` : ""}
+    ${status === "accepted" && link && !offline ? `<a class="primary pay" href="${escapeHtml(link)}" data-pay data-pay-num="${o.num}">Оплатить картой онлайн · ${total}</a>
+      <p class="adm-sub" style="margin-top:6px">Откроется страница демо-оплаты. Статус заказа обновится сам.${ONLINE_PAY_TEST_HINT}</p>` : ""}
+    ${status === "accepted" && details && !offline ? `<div class="req"><p class="req-h">Реквизиты для оплаты · ${total}</p><p class="req-t">${escapeHtml(details)}</p>
       <button class="ghost copy" data-copy="${o.num}">Скопировать реквизиты</button></div>
       ${isPaymentLink(details) ? `<a class="primary pay" href="${escapeHtml(details)}" data-pay>Перейти к оплате</a>` : ""}` : ""}
+    ${status === "accepted" && !link && !offline && onlinePayOn() ? `<button class="primary pay" data-pay-online="${o.num}">Оплатить картой онлайн</button>
+      <p class="adm-sub" style="margin-top:6px">Откроется страница демо-оплаты. Статус заказа обновится сам.${ONLINE_PAY_TEST_HINT}</p>` : ""}
     ${status === "rejected" && o.message ? `<p class="ord-note">${escapeHtml(o.message)}</p>` : ""}
     ${returnInfoHtml(o)}
-    ${useSupabase && status === "accepted" ? `<p class="adm-sub" style="margin-top:10px">Оплатили? Отправьте чек менеджеру в чат.</p>` : ""}
+    ${useSupabase && status === "accepted" && details && !offline ? `<p class="adm-sub" style="margin-top:10px">${link ? "Платите по реквизитам? Отправьте чек менеджеру в чат." : "Оплатили? Отправьте чек менеджеру в чат."}</p>` : ""}
     ${useSupabase ? chatButtonHtml(o, "customer") : ""}
     ${status === "new" ? `<p class="adm-sub">${hasOrdersBackend ? "Проверяем наличие. Как только всё подтвердим, здесь появятся реквизиты для оплаты." : "Статус заказа уточняйте у менеджера в Telegram."}</p>` : ""}
   </article>`;
@@ -382,8 +461,10 @@ export function initCart() {
     if (review) { haptic(); return openProduct(Number(review.dataset.review), true); }
     const group = e.target.closest("[data-orders-group]")?.dataset.ordersGroup;
     if (group && group !== ordersGroup) { haptic(); ordersGroup = group; return renderMyOrders(); }
+    const payOnlineButton = e.target.closest("[data-pay-online]:not(:disabled)");
+    if (payOnlineButton) return payOnline(payOnlineButton);
     const pay = e.target.closest("[data-pay]");
-    if (pay) { e.preventDefault(); openLink(pay.href); }
+    if (pay) { e.preventDefault(); if (pay.dataset.payNum) storage.set(payingKey, Number(pay.dataset.payNum)); openLink(pay.href); }
     const chatButton = e.target.closest("[data-chat]");
     const chatOrder = chatButton && state.myOrders.find((o) => o.num === Number(chatButton.dataset.chat));
     if (chatOrder) { haptic(); openChat(chatOrder, "customer"); }
@@ -405,8 +486,14 @@ export function initCart() {
   on("catalog", () => state.tab === "cart" && renderCartPage());
   on("chatseen", () => state.tab === "orders" && renderMyOrders()); // убрать отметку «новое»
   on("myreviews", () => state.tab === "orders" && renderMyOrders()); // «Ваш отзыв: ★★★★★» вместо «Оставить отзыв»
-  document.addEventListener("visibilitychange", () => !document.hidden && state.tab === "orders" && renderMyOrders(true));
+  document.addEventListener("visibilitychange", async () => {
+    if (document.hidden) return;
+    if (storage.get(payingKey, 0)) await checkOnlinePay(); // вернулся со страницы оплаты
+    if (state.tab === "orders") renderMyOrders(true);
+  });
   if (useSupabase) watchMyOrders();
+  if (useSupabase && new URLSearchParams(location.search).has("paid")) // Stripe вернул покупателя на сайт
+    checkOnlinePay().then(() => { history.replaceState(null, "", location.pathname); setTab("orders"); });
 }
 
 /** Supabase: заказ меняется — перечитываем «Мои заказы». Пришли реквизиты или сообщение — сообщаем покупателю. */
@@ -417,5 +504,6 @@ function watchMyOrders() {
     await renderMyOrders(true);
     const order = state.myOrders.find((o) => o.num === Number(id));
     if (op === "update" && order?.status === "accepted") { haptic("success"); toast("Пришли реквизиты для оплаты заказа"); }
+    if (op === "update" && order?.status === "paid" && order.payment?.online) { haptic("success"); toast("Оплата прошла"); storage.set(payingKey, 0); }
   }, () => renderMyOrders(true)); // после переподключения догружаем пропущенное
 }
