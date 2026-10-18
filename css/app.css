@@ -123,12 +123,6 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .sc-tab tr.on > * { background: color-mix(in srgb, var(--accent) 28%, transparent); }
 .sc-tab tr.off { opacity: .4; cursor: default; }
 .sc-note { color: var(--muted); font-size: 12.5px; margin: 8px 0 0; }
-.sc-find { display: block; margin-top: 12px; }
-.sc-find span { display: block; font-weight: 600; font-size: 13px; margin-bottom: 6px; }
-.sc-find input { width: 100%; padding: 10px 12px; border-radius: 10px; border: 1.5px solid var(--line); background: var(--surface); color: var(--ink); font: inherit; }
-.sc-result { margin: 8px 0 0; font-weight: 600; font-size: 13.5px; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
-.sc-result:empty { display: none; }
-.sc-pick { border: 0; border-radius: 999px; padding: 6px 12px; background: var(--ink); color: var(--surface); font-weight: 700; font-size: 13px; }
 .sc-how { margin-top: 10px; font-size: 13px; }
 .sc-how summary { cursor: pointer; font-weight: 600; }
 .sc-how p { color: var(--muted); margin: 6px 0 0; }
