@@ -6,7 +6,7 @@
 // изменения из другой вкладки приходят через событие storage — как Realtime у Supabase.
 import { BASE_PRODUCTS, COLOR_NAMES } from "./data.js?v=20261001b";
 import { STORAGE_PREFIX, storage, toast } from "./core.js?v=20261001b";
-import { DEMO_DIRECTOR } from "./config.js?v=20261001b";
+import { DEMO_DIRECTOR, DEMO_PAY_FUNCTION } from "./config.js?v=20261001b";
 
 const DB_KEY = STORAGE_PREFIX + "demo_db_v5";
 const EVENT_KEY = STORAGE_PREFIX + "demo_event";
@@ -904,7 +904,9 @@ const demoStorage = {
   }),
 };
 
-/* ---------- Функция online-pay: ссылка на страницу демо-оплаты вместо Stripe ---------- */
+/* ---------- Функция online-pay: create открывает настоящую тестовую страницу Stripe ----------
+   Заказы демо хранятся в браузере, поэтому сумму функции передаём сами (demo_create). Stripe после оплаты
+   возвращает на pay.html, та проверяет оплату (demo_check) и отмечает заказ оплаченным. */
 const payUrl = (id) => new URL(`pay.html?order=${id}&sig=d${id}`, location.href).href;
 const payError = (code) => ({ data: null, error: { name: "FunctionsHttpError", context: { json: async () => ({ error: code }) } } });
 
@@ -918,7 +920,20 @@ async function payInvoke(client, name, { action, order_id: id }) {
   if (action !== "create") return payError("bad_request");
   if (o.status === "paid") return { data: { paid: true }, error: null };
   if (o.status !== "awaiting_payment") return payError("not_awaiting");
-  return { data: { url: payUrl(id) }, error: null };
+  return stripeSession(o);
+}
+
+/** Тестовая страница оплаты Stripe для демо-заказа */
+async function stripeSession(o) {
+  if (!DEMO_PAY_FUNCTION) return payError("not_configured");
+  try {
+    const response = await fetch(DEMO_PAY_FUNCTION, { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "demo_create", order_id: o.id, amount: Number(o.total) }) });
+    const data = await response.json().catch(() => ({}));
+    if (response.ok && data.url) return { data: { url: data.url }, error: null };
+    // bad_action — в Supabase ещё старая функция online-pay без демо-оплаты
+    return payError(["bad_action", "bad_order", "not_configured"].includes(data.error) ? "not_configured" : data.error || "server");
+  } catch { return payError("network"); }
 }
 
 /* ---------- Клиент с API supabase-js ---------- */

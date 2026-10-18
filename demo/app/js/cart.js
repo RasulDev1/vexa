@@ -248,35 +248,39 @@ const isPaymentLink = (text) => /^https:\/\/\S+$/.test(text.trim());
 
 /* ---------- Онлайн-оплата картой (Stripe) ---------- */
 // Пока ONLINE_PAY выключена, онлайн-оплату видят только проверяющие из ONLINE_PAY_TESTERS (config.js)
-// Демо: сначала страница демо-оплаты pay.html, с неё — тестовая страница Stripe
-const ONLINE_PAY_TEST_HINT = ONLINE_PAY_TEST ? "<br>Это тестовая оплата, деньги не списываются. Оплатить можно только картой <b>4242 4242 4242 4242</b>: срок любой в будущем, CVC любые 3 цифры." : "";
+// Демо: кнопка сразу открывает тестовую страницу Stripe (функция online-pay, действие demo_create)
+const ONLINE_PAY_TEST_HINT = ONLINE_PAY_TEST ? "<br>Это тестовая оплата, деньги не списываются. Номер карты — только наш тестовый: <b>4242 4242 4242 4242</b>. Остальные данные можно выдумать: срок любой в будущем, CVC любые 3 цифры, почта и имя любые." : "";
 export const onlinePayFor = (userId) => ONLINE_PAY || ONLINE_PAY_TESTERS.map(String).includes(String(userId));
 const onlinePayOn = () => Boolean(api.onlinePay) && onlinePayFor(telegramUser?.id);
 /** Ссылка на оплату картой, которую CRM подставила в реквизиты (функция online-pay) */
 const ONLINE_LINK = /https?:\/\/\S+\/(?:functions\/v1\/online-pay|pay\.html)\?order=\d+&sig=[0-9a-f]+/;
 export const onlinePayLink = (text) => ONLINE_LINK.exec(text || "")?.[0] || "";
-const PAY_ERRORS = { not_configured: "Онлайн-оплата пока не настроена. Оплатите по реквизитам.",
+const PAY_ERRORS = { not_configured: "Тестовая оплата Stripe пока не подключена. Повторите позже.",
   test_only: "Онлайн-оплата пока в тестовом режиме. Оплатите по реквизитам.",
   not_awaiting: "Статус заказа изменился. Обновляем…", network: "Нет связи. Проверьте интернет и повторите." };
 const payingKey = "vexa_paying"; // заказ, который покупатель ушёл оплачивать, — проверим, когда вернётся
 
 async function payOnline(button) {
-  const num = Number(button.dataset.payOnline);
+  const num = Number(button.dataset.payOnline), label = button.textContent;
   button.disabled = true;
   button.textContent = "Открываем оплату…";
+  // Демо открыто в браузере, часто внутри рамки: Stripe открываем в новой вкладке, и открываем её сразу,
+  // пока браузер считает это нажатием, — иначе после ожидания ответа он может заблокировать окно
+  const tab = window.open("", "_blank");
   try {
     const result = await api.onlinePay(num);
-    if (result?.paid) { toast("Заказ уже оплачен"); return renderMyOrders(true); }
+    if (result?.paid) { tab?.close(); toast("Заказ уже оплачен"); return renderMyOrders(true); }
     storage.set(payingKey, num);
     haptic();
-    openLink(result.url);
+    if (tab) tab.location.href = result.url; else openLink(result.url);
   } catch (error) {
+    tab?.close();
     toast(PAY_ERRORS[error.code] || "Не удалось открыть оплату. Повторите или оплатите по реквизитам.");
     haptic("medium");
     if (error.code === "not_awaiting") renderMyOrders(true);
   } finally {
     button.disabled = false;
-    button.textContent = "Оплатить картой онлайн";
+    button.textContent = label;
   }
 }
 
@@ -400,7 +404,7 @@ function myOrderHtml(o) {
     <p class="ord-sum">Итого <b>${total}</b></p>
     ${status === "accepted" && o.note && (details || link || offline) ? `<p class="ord-note">${escapeHtml(o.note)}</p>` : ""}
     ${status === "accepted" && offline ? `<p class="ord-note">${offline}.</p>` : ""}
-    ${status === "accepted" && link && !offline ? `<a class="primary pay" href="${escapeHtml(link)}" data-pay data-pay-num="${o.num}">Оплатить картой онлайн · ${total}</a>
+    ${status === "accepted" && link && !offline ? `<button class="primary pay" data-pay-online="${o.num}">Оплатить картой онлайн · ${total}</button>
       <p class="adm-sub" style="margin-top:6px">Оплата на тестовой странице Stripe. Статус заказа обновится сам.${ONLINE_PAY_TEST_HINT}</p>` : ""}
     ${status === "accepted" && details && !offline ? `<div class="req"><p class="req-h">Реквизиты для оплаты · ${total}</p><p class="req-t">${escapeHtml(details)}</p>
       <button class="ghost copy" data-copy="${o.num}">Скопировать реквизиты</button></div>
