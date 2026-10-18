@@ -200,8 +200,10 @@ Permissions → Repository permissions → **Contents: Read and write** → **Ge
 3. Supabase → Edge Functions: создайте функцию `online-pay` с кодом из `supabase/functions/online-pay/index.ts`
    и **выключите Verify JWT** (или `supabase functions deploy online-pay --no-verify-jwt`).
 4. Edge Functions → Secrets: `STRIPE_SECRET_KEY` и `PAY_TESTERS` — свой Telegram ID
-   (через запятую, если проверяющих несколько). С тестовым ключом платить могут только они.
-   Необязательно: `PAY_RETURN_URL` — куда вернуть после оплаты, например `https://t.me/имя_бота`.
+   (через запятую, если проверяющих несколько). С тестовым ключом платить могут только они,
+   а `*` — любой покупатель (удобно для демо: заказ «оплачивается» тестовой картой, деньги не списываются).
+   После оплаты покупатель возвращается в чат бота — функция берёт его имя по `TELEGRAM_BOT_TOKEN`.
+   Необязательно: `PAY_RETURN_URL` — вернуть в другое место.
 5. Stripe → Developers → Webhooks → Add destination: адрес `https://<проект>.supabase.co/functions/v1/online-pay`,
    событие `checkout.session.completed`. Без него оплата тоже отметится — когда покупатель вернётся в магазин.
 6. `js/config.js`: впишите свой Telegram ID в `ONLINE_PAY_TESTERS` — кнопку увидите только вы.

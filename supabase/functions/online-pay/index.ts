@@ -17,10 +17,11 @@
 // Секреты функции (Edge Functions → Secrets):
 //   STRIPE_SECRET_KEY  — секретный ключ Stripe; тестовый начинается с sk_test_
 //   PAY_TESTERS        — Telegram ID через запятую: кто может платить, пока ключ тестовый. Без него тестовый
-//                        ключ не принимает оплату ни от кого — иначе покупатель «оплатил» бы заказ тестовой картой
+//                        ключ не принимает оплату ни от кого — иначе покупатель «оплатил» бы заказ тестовой картой.
+//                        * — тестовую оплату может пройти любой покупатель (демо-магазин)
 //   SHOP_URL           — адрес магазина (необязательно)
-//   PAY_RETURN_URL     — куда вернуть покупателя после оплаты, например ссылка на бота https://t.me/имя_бота
-//                        (необязательно; без неё — на сайт магазина, и он сам проверит оплату)
+//   PAY_RETURN_URL     — куда вернуть покупателя после оплаты (необязательно; без неё — в чат бота магазина,
+//                        ссылку на бота функция узнаёт по TELEGRAM_BOT_TOKEN, а без токена — на сайт магазина)
 //   TELEGRAM_BOT_TOKEN — уже есть у бота; с ним бот напишет покупателю «Оплата получена» (необязательно)
 // SUPABASE_URL, SUPABASE_ANON_KEY и SUPABASE_SERVICE_ROLE_KEY Supabase подставляет сам.
 // Развернуть без проверки JWT: supabase functions deploy online-pay --no-verify-jwt
@@ -80,11 +81,22 @@ async function sign(orderId: number): Promise<string> {
 }
 const payLink = async (orderId: number) => `${FUNCTION_URL}?order=${orderId}&sig=${await sign(orderId)}`;
 const doneLink = async (orderId: number) => `${FUNCTION_URL}?done=${orderId}&sig=${await sign(orderId)}`;
-/** Магазин после оплаты: бот (PAY_RETURN_URL) или сайт, который сам перечитает заказ */
-const shopAfter = (orderId: number) => RETURN_URL || `${SHOP_URL}${SHOP_URL.includes("?") ? "&" : "?"}paid=${orderId}`;
+/** Ссылка на чат бота магазина: имя бота спрашиваем у Telegram один раз */
+let botLink: Promise<string> | null = null;
+function botChat(): Promise<string> {
+  if (!BOT_TOKEN) return Promise.resolve("");
+  botLink ||= fetch(`https://api.telegram.org/bot${BOT_TOKEN}/getMe`).then((r) => r.json())
+    .then((r) => (r?.result?.username ? `https://t.me/${r.result.username}` : ""))
+    .catch(() => "")
+    .then((url) => { if (!url) botLink = null; return url; }); // не вышло — спросим в следующий раз
+  return botLink;
+}
+/** Куда вернуть покупателя после оплаты: PAY_RETURN_URL, чат бота (там его ждёт «Оплата получена») или сайт */
+const shopAfter = async (orderId: number) =>
+  RETURN_URL || await botChat() || `${SHOP_URL}${SHOP_URL.includes("?") ? "&" : "?"}paid=${orderId}`;
 
 /** Тестовый ключ: платить тестовой картой могут только проверяющие */
-const allowed = (userId: unknown) => !TEST_MODE || TESTERS.includes(String(userId));
+const allowed = (userId: unknown) => !TEST_MODE || TESTERS.includes("*") || TESTERS.includes(String(userId));
 
 /** Заказ покупателя, который ждёт оплаты, — проверяет база по его подписи Telegram */
 async function customerOrder(req: Request, orderId: number): Promise<Json> {
@@ -169,7 +181,7 @@ async function openSession(order: Json): Promise<Json> {
     client_reference_id: String(orderId),
     locale: "auto",
     success_url: await doneLink(orderId), // функция отметит оплату и вернёт покупателя в магазин
-    cancel_url: RETURN_URL || SHOP_URL,
+    cancel_url: RETURN_URL || await botChat() || SHOP_URL,
   }, crypto.randomUUID());
   if (!session.url) throw { code: "server" };
   await admin.rpc("online_pay_start", { p_id: orderId, p_pay_id: session.id, p_url: session.url, p_test: !session.livemode });
@@ -204,7 +216,7 @@ async function browser(url: URL): Promise<Response> {
   try {
     if (done) {
       if (order.status === "awaiting_payment" && order.pay_id) await applyPayment(await stripe(`/checkout/sessions/${order.pay_id}`));
-      return go(shopAfter(orderId));
+      return go(await shopAfter(orderId));
     }
     if (order.status === "paid") return say("Этот заказ уже оплачен. Спасибо!");
     if (order.status !== "awaiting_payment") return say("Этот заказ сейчас нельзя оплатить. Откройте его в магазине, в «Мои заказы».", 409);
