@@ -3,7 +3,7 @@ import { $, formatPrice, formatDate, escapeHtml, pluralize, haptic, toast, stora
 import { state, api, errorMessage, useSupabase } from "./state.js?v=20261001b";
 import { watchOrders } from "./supabase.js?v=20261001b";
 import { refreshCatalog } from "./catalog.js?v=20261001b";
-import { orderItemsHtml, paymentDetails, onlinePayFor, onlinePayLink } from "./cart.js?v=20261001b";
+import { orderItemsHtml, paymentDetails, onlinePayFor, onlinePayLink, payWayOf, OFFLINE_PAY_TEXT } from "./cart.js?v=20261001b";
 import { sheetBody, openSheet } from "./nav.js?v=20261001b";
 import { chatButtonHtml, openChat, onChatEvent, hasUnread } from "./chat.js?v=20261001b";
 import { openCustomer } from "./admin-customers.js?v=20261001b";
@@ -292,7 +292,12 @@ async function onOrdersClick(e) {
   if (t.dataset.retSave) return saveReturn(t);
   if (t.dataset.retDone) return doneReturn(t);
   if (t.dataset.declineSave) return declineReturn(t);
-  if (t.dataset.accept) { openForm = { num: Number(t.dataset.accept), type: "accept", text: storage.get("temp_last_pay", "") }; addPayLink(openForm); }
+  if (t.dataset.accept) {
+    const way = payWayOf(state.adminOrders.find((o) => o.num === Number(t.dataset.accept)));
+    // наличные или оплата при получении — реквизиты и ссылка не нужны
+    openForm = { num: Number(t.dataset.accept), type: "accept", text: OFFLINE_PAY_TEXT[way] || storage.get("temp_last_pay", "") };
+    if (way === "online") addPayLink(openForm);
+  }
   else if (t.dataset.reject) openForm = { num: Number(t.dataset.reject), type: "reject", text: rejectionText(state.adminOrders.find((o) => o.num === Number(t.dataset.reject))) };
   else if (t.hasAttribute("data-cancel")) openForm = null;
   else if (t.dataset.send) return sendDecision(t);
@@ -339,7 +344,7 @@ async function sendDecision(button) {
   try {
     if (accept) {
       const own = openForm.text.replace(onlinePayLink(openForm.text), "").trim(); // ссылка на оплату у каждого заказа своя
-      if (own) storage.set("temp_last_pay", own); // реквизиты обычно одни и те же — подставим в следующий раз
+      if (own && !Object.values(OFFLINE_PAY_TEXT).includes(own)) storage.set("temp_last_pay", own); // реквизиты обычно одни и те же — подставим в следующий раз
       await api.acceptOrder(openForm.num, openForm.text, openForm.note);
     } else {
       await api.rejectOrder(openForm.num, openForm.text);
