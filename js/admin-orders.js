@@ -292,13 +292,8 @@ async function onOrdersClick(e) {
   if (t.dataset.retSave) return saveReturn(t);
   if (t.dataset.retDone) return doneReturn(t);
   if (t.dataset.declineSave) return declineReturn(t);
-  if (t.dataset.accept) {
-    const way = payWayOf(state.adminOrders.find((o) => o.num === Number(t.dataset.accept)));
-    // наличные или оплата при получении — реквизиты и ссылка не нужны
-    openForm = { num: Number(t.dataset.accept), type: "accept", text: OFFLINE_PAY_TEXT[way] || storage.get("temp_last_pay", "") };
-    if (way === "online") addPayLink(openForm);
-  }
-  else if (t.dataset.reject) openForm = { num: Number(t.dataset.reject), type: "reject", text: rejectionText(state.adminOrders.find((o) => o.num === Number(t.dataset.reject))) };
+  if (t.dataset.accept) return quickAccept(t);
+  if (t.dataset.reject) openForm = { num: Number(t.dataset.reject), type: "reject", text: rejectionText(state.adminOrders.find((o) => o.num === Number(t.dataset.reject))) };
   else if (t.hasAttribute("data-cancel")) openForm = null;
   else if (t.dataset.send) return sendDecision(t);
   else if (t.dataset.pay) openForm = { num: Number(t.dataset.pay), type: "pay", method: null, amount: null };
@@ -316,19 +311,34 @@ async function onOrdersClick(e) {
   (openForm?.type === "pay" || openForm?.type === "return" ? null : $("formText"))?.focus();
 }
 
-/** «Принять»: ссылка на оплату картой сама подставляется в реквизиты (онлайн-оплата, supabase-online-pay.sql).
- *  Не получилось (не настроена, тестовый режим и покупатель не проверяющий) — остаются обычные реквизиты. */
-async function addPayLink(form) {
-  const order = state.adminOrders.find((o) => o.num === form.num);
-  if (!api.onlinePayLink || !order || !onlinePayFor(order.user?.id)) return;
+/** «Принять» сразу принимает заказ: способ оплаты покупатель уже выбрал при оформлении.
+ *  Наличные или при получении — текст вместо реквизитов; онлайн — ссылка на оплату картой (функция online-pay).
+ *  Ссылку получить не удалось (онлайн-оплата не настроена) — открываем форму реквизитов, как раньше. */
+async function quickAccept(button) {
+  const num = Number(button.dataset.accept), order = state.adminOrders.find((o) => o.num === num);
+  const way = payWayOf(order);
+  button.disabled = true;
+  button.textContent = "Принимаем…";
+  let text = OFFLINE_PAY_TEXT[way] || "";
+  if (!text && api.onlinePayLink && onlinePayFor(order?.user?.id)) {
+    try { text = (await api.onlinePayLink(num)).url || ""; } catch {}
+  }
+  if (!text) { // онлайн-оплаты нет — менеджер впишет реквизиты сам
+    openForm = { num, type: "accept", text: storage.get("temp_last_pay", "") };
+    renderOrders();
+    return $("formText")?.focus();
+  }
   try {
-    const { url } = await api.onlinePayLink(form.num);
-    if (openForm !== form || !url) return;
-    const typed = $("formText")?.value.trim() ?? form.text;
-    form.text = typed && typed !== storage.get("temp_last_pay", "") ? `${url}\n\n${typed}` : url;
-    if ($("formText")) $("formText").value = form.text;
-    if ($("formHint")) $("formHint").textContent = "Ссылка на оплату картой подставлена сама. После оплаты заказ отметится оплаченным автоматически.";
-  } catch {}
+    await api.acceptOrder(num, text, null);
+    haptic("success");
+    toast("Заказ принят");
+    openForm = null;
+    await showOrder(num);
+  } catch (error) {
+    button.disabled = false;
+    button.textContent = "Принять";
+    toast(errorMessage(error));
+  }
 }
 
 async function sendDecision(button) {
