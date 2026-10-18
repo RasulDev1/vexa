@@ -22,3 +22,10 @@ export const GITHUB_REPO = "";
 // Ключ — publishable, он публичный. Secret / service_role сюда вставлять нельзя!
 export const SUPABASE_URL = "https://ztcltngfpnhhuzyyqnfw.supabase.co";
 export const SUPABASE_KEY = "sb_publishable_8xnrRsc0jbvrdWLQfVl9RA_ChDkxp-a";
+
+// Онлайн-оплата картой через ЮKassa (supabase-online-pay.sql и функция online-pay в Supabase).
+// true — у принятого заказа в «Мои заказы» у всех покупателей появляется кнопка «Оплатить картой онлайн».
+// Пока false, кнопку видят только Telegram ID из ONLINE_PAY_TESTERS — так оплату можно проверить на живом магазине.
+// С ключами тестового магазина деньги не списываются: платите тестовой картой 5555 5555 5555 4477.
+export const ONLINE_PAY = false;
+export const ONLINE_PAY_TESTERS = []; // например [123456789]
