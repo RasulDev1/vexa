@@ -5,7 +5,7 @@ import { state, saveCart, findProduct } from "./state.js?v=20261001b";
 import { colorName, swatchBackground, stockLeft, isUnavailable, isSoldOut } from "./catalog.js?v=20261001b";
 import { productImage, swapImage, photoForColor } from "./photos.js?v=20261001b";
 import { sheetBody, openSheet, closeSheet, syncMainButton } from "./nav.js?v=20261001b";
-import { sizeChartHtml, syncSizeChart, finderResult } from "./size-chart.js?v=20261001b";
+import { sizeChartHtml, syncSizeChart } from "./size-chart.js?v=20261001b";
 import { loadRatings, ratingHtml, ratingLineHtml, showProductReviews, handleReviewTap } from "./reviews.js?v=20261001b";
 
 const tint = (color) => `color-mix(in srgb, ${color} 14%, var(--bg))`;
@@ -80,11 +80,10 @@ export function openProduct(id, writeReview = false) {
     if (size) { haptic(); selectSize(p, size); }
     if (e.target.id === "addToCart") addSelectedToCart();
     if (e.target.id === "sizeChartToggle") toggleSizeChart(p);
-    const row = e.target.closest("[data-chart-size]:not(.off)")?.dataset.chartSize
-      || e.target.closest("[data-pick-size]")?.dataset.pickSize;
+    const row = e.target.closest("[data-chart-size]:not(.off)")?.dataset.chartSize;
     if (row && !isUnavailable(p, selected.color, row)) { haptic(); selectSize(p, row); }
   };
-  sheetBody.oninput = (e) => { if (e.target.id === "sizeFinder") showFinderResult(p, e.target.value); };
+  sheetBody.oninput = null;
   openSheet("product");
   showProductReviews(id, writeReview);
 }
@@ -98,14 +97,6 @@ function toggleSizeChart(p) {
   panel.hidden = !open;
   $("sizeChartToggle").setAttribute("aria-expanded", open);
   if (open) { syncChart(p); replayAnimation(panel, "swap"); }
-}
-
-function showFinderResult(p, value) {
-  const { text, size } = finderResult(p, value);
-  const available = size && p.sizes.includes(size) && !isUnavailable(p, selected.color, size);
-  $("sizeFinderResult").innerHTML = !text ? ""
-    : `${text}${size && !available ? " — сейчас его нет в этом цвете" : ""}${available && size !== selected.size
-      ? ` <button class="sc-pick" data-pick-size="${size}">Выбрать ${size}</button>` : ""}`;
 }
 
 function selectColor(p, color) {
@@ -129,7 +120,6 @@ function selectSize(p, size) {
   $("stockNote").textContent = stockNote(p, selected.color, size);
   $("hint").textContent = "";
   syncChart(p);
-  if ($("sizeFinder")?.value) showFinderResult(p, $("sizeFinder").value);
 }
 
 export function addSelectedToCart() {
