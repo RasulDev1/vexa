@@ -8,7 +8,7 @@ import { BASE_PRODUCTS, COLOR_NAMES } from "./data.js?v=20261001b";
 import { STORAGE_PREFIX, storage, toast } from "./core.js?v=20261001b";
 import { DEMO_DIRECTOR } from "./config.js?v=20261001b";
 
-const DB_KEY = STORAGE_PREFIX + "demo_db_v2";
+const DB_KEY = STORAGE_PREFIX + "demo_db_v3";
 const EVENT_KEY = STORAGE_PREFIX + "demo_event";
 const ME = 1001;                       // «Telegram ID» посетителя демо — он же покупатель в магазине
 const STAFF_TOPIC = "demo-staff";
@@ -117,16 +117,18 @@ function seed() {
   const event = (orderId, time, actor, body) => db.order_events.push({ id: ++db.seq.order_events, order_id: orderId, at: iso(time), actor, body });
   const staffName = (id) => STAFF.find((s) => s.id === id).full_name;
 
-  /** Заказ с историей: t — когда оформлен; acc / paid / deliv — через сколько минут после оформления */
+  /** Заказ с историей: t — когда оформлен; acc / paid / deliv — через сколько минут после оформления.
+   *  pay — как покупатель выбрал платить: online (по умолчанию), cash — наличными при самовывозе, cod — при получении */
   function order(o) {
     const id = ++db.seq.orders;
+    const pay = o.pay || "online";
     const [name, phone] = CUSTOMERS[o.uid];
     const total = itemsTotal(o.items);
     const created = o.t;
     const past = (min) => Math.min(created + min * M, now - 2 * M); // ничего не происходит «в будущем»
     const row = {
       id, created_at: iso(created), user_id: o.uid, username: null, status: o.status, items: o.items, total,
-      customer_name: name, phone, delivery_way: o.way, address: o.addr || null, payment_details: null, manager_note: null,
+      customer_name: name, phone, delivery_way: o.way + (PAY_NOTE[pay] ? " · " + PAY_NOTE[pay] : ""), address: o.addr || null, payment_details: null, manager_note: null,
       payment_method: null, paid_amount: null, paid_at: null, paid_by: null, paid_by_id: null,
       accepted_by: null, accepted_by_id: null, accepted_at: null, delivered_at: null, delivered_by: null,
       return_request_reason: null, return_requested_at: null, return_declined: null, return_reason: null,
@@ -142,14 +144,16 @@ function seed() {
       event(id, past(o.acc), mgr, `Отказ: «${o.reject}»`);
     }
     if (o.acc != null && !o.reject) {
-      Object.assign(row, { accepted_at: iso(past(o.acc)), accepted_by: mgr, accepted_by_id: o.mgr, payment_details: PAY_TEXT });
+      Object.assign(row, { accepted_at: iso(past(o.acc)), accepted_by: mgr, accepted_by_id: o.mgr,
+        payment_details: pay === "online" ? payUrl(id) : OFFLINE_TEXT[pay] });
       event(id, past(o.acc), mgr, "Принят, покупателю отправлены реквизиты для оплаты");
     }
     if (o.paid != null) {
-      const amount = o.amount ?? total;
-      Object.assign(row, { payment_method: o.method, paid_amount: amount, paid_at: iso(past(o.paid)), paid_by: mgr, paid_by_id: o.mgr,
+      const amount = o.amount ?? total, online = pay === "online"; // онлайн-оплату отмечает не менеджер, а сама оплата
+      Object.assign(row, { payment_method: online ? "card" : o.method, paid_amount: amount, paid_at: iso(past(o.paid)),
+        paid_by: online ? "Онлайн-оплата (тест)" : mgr, paid_by_id: online ? null : o.mgr, online_pay_test: online || null,
         cost_total: itemsCost(db, o.items) });
-      event(id, past(o.paid), mgr, `Оплачен ${WAY[o.method]}: ${rub(amount)}`);
+      event(id, past(o.paid), online ? "Покупатель" : mgr, `Оплачен ${WAY[row.payment_method]}: ${rub(amount)}`);
     }
     if (o.deliv != null) {
       Object.assign(row, { delivered_at: iso(past(o.deliv)), delivered_by: mgr });
@@ -171,10 +175,12 @@ function seed() {
     return id;
   }
 
+  const PAY_NOTE = { cash: "оплата наличными", cod: "оплата при получении, возврат платный" };
+  const OFFLINE_TEXT = { cash: "Оплата наличными при самовывозе", cod: "Оплата при получении. Возврат платный" };
   const CDEK = "СДЭК", POST = "Почта России", CITY = "По городу", PICKUP = "Самовывоз";
   order({ uid: 104, t: at(13, 11, 20), items: [item(6, "M")], way: CDEK, addr: "Краснодар, ул. Красная, 120, ПВЗ СДЭК",
     status: "delivered", mgr: 2, acc: 25, paid: 140, method: "card", deliv: 2 * 1440 });
-  order({ uid: 101, t: at(12, 14, 5), items: [item(7, "43"), item(8, "One size")], way: PICKUP,
+  order({ uid: 101, t: at(12, 14, 5), items: [item(7, "43"), item(8, "One size")], way: PICKUP, pay: "cash",
     status: "delivered", mgr: 3, acc: 15, paid: 300, method: "cash", deliv: 300 });
   order({ uid: 106, t: at(12, 19, 40), items: [item(3, "S")], way: POST, addr: "350000, Краснодар, ул. Северная, 310, кв. 14",
     status: "cancelled", mgr: 2, acc: 50, reject: "Размер S закончился. Можем предложить M — напишите, если подойдёт." });
@@ -183,8 +189,8 @@ function seed() {
     request: { reason: "Не подошёл размер: маломерит", at: at(9, 12, 0) },
     refund: { reason: "Не подошёл размер, вещь с бирками", amount: 4290, method: "card", approved: at(9, 13, 10), done: at(8, 16, 30), restock: true } });
   order({ uid: 105, t: at(10, 9, 50), items: [item(5, "M", 1, "#D8C8B0"), item(4, "S")], way: CDEK, addr: "Владикавказ, пр. Мира, 9, ПВЗ СДЭК",
-    status: "delivered", mgr: 2, acc: 20, paid: 95, method: "card", deliv: 3 * 1440 });
-  order({ uid: 103, t: at(9, 16, 30), items: [item(10, "L", 2)], way: PICKUP,
+    pay: "cod", status: "delivered", mgr: 2, acc: 20, paid: 3 * 1440, method: "card", deliv: 3 * 1440 });
+  order({ uid: 103, t: at(9, 16, 30), items: [item(10, "L", 2)], way: PICKUP, pay: "cash",
     status: "delivered", mgr: 2, acc: 10, paid: 120, method: "cash", deliv: 120 });
   order({ uid: 107, t: at(8, 12, 45), items: [item(7, "42", 1, "#B3122E")], way: CDEK, addr: "Назрань, ул. Московская, 22, ПВЗ СДЭК",
     status: "delivered", mgr: 3, acc: 40, paid: 180, method: "card", deliv: 2 * 1440 });
@@ -193,7 +199,7 @@ function seed() {
     request: { reason: "Брак: разошёлся шов на рукаве после первой стирки", at: at(1, 10, 30) } });
   const amina = order({ uid: 109, t: at(6, 13, 0), items: [item(5, "L", 1, "#1B1B1F")], way: CDEK, addr: "Махачкала, ул. Ярагского, 64, ПВЗ СДЭК",
     status: "paid", mgr: 3, acc: 30, paid: 240, method: "card" });
-  order({ uid: 110, t: at(5, 11, 30), items: [item(3, "XL"), item(4, "L")], way: PICKUP,
+  order({ uid: 110, t: at(5, 11, 30), items: [item(3, "XL"), item(4, "L")], way: PICKUP, pay: "cash",
     status: "delivered", mgr: 3, acc: 20, paid: 90, method: "cash", deliv: 95 });
   order({ uid: 101, t: at(4, 17, 15), items: [item(1, "M", 2)], way: PICKUP,
     status: "delivered", mgr: 2, acc: 10, paid: 60, method: "card", deliv: 65 });
@@ -205,24 +211,24 @@ function seed() {
     status: "awaiting_payment", mgr: 2, acc: 45 });
   const mine = order({ uid: ME, t: at(1, 19, 25), items: [item(7, "44"), item(8, "One size")], way: PICKUP,
     status: "awaiting_payment", mgr: 2, acc: 20 });
-  order({ uid: 103, t: now - 4 * H, items: [item(2, "XL"), item(1, "XL")], way: PICKUP,
+  order({ uid: 103, t: now - 4 * H, items: [item(2, "XL"), item(1, "XL")], way: PICKUP, pay: "cash",
     status: "paid", mgr: 1, acc: 15, paid: 70, method: "cash" });
   order({ uid: 104, t: now - 150 * M, items: [item(10, "M")], way: CDEK, addr: "Краснодар, ул. Северная, 324, ПВЗ СДЭК",
-    status: "awaiting_payment", mgr: 3, acc: 25 });
+    pay: "cod", status: "awaiting_payment", mgr: 3, acc: 25 });
   order({ uid: 106, t: now - 70 * M, items: [item(9, "S"), item(4, "S")], way: CITY, addr: "ул. Кубанская Набережная, 37, кв. 90", status: "new" });
-  order({ uid: 102, t: now - 18 * M, items: [item(6, "XL")], way: PICKUP, status: "new" });
+  order({ uid: 102, t: now - 18 * M, items: [item(6, "XL")], way: PICKUP, pay: "cash", status: "new" });
 
   // Переписка по заказам
   const msg = (orderId, time, fromStaff, body) =>
     db.order_messages.push({ id: ++db.seq.order_messages, order_id: orderId, user_id: fromStaff ? null : db.orders.find((o) => o.id === orderId).user_id,
       from_staff: fromStaff, body, file_name: null, file_type: null, file_size: null, file_data: null, created_at: iso(time) });
-  msg(amina, at(6, 13, 40), false, "Здравствуйте! Оплатил картой, чек сохранил. Когда отправите?");
+  msg(amina, at(6, 13, 40), false, "Здравствуйте! Оплатил онлайн картой. Когда отправите?");
   msg(amina, at(6, 14, 5), true, "Добрый день! Оплату видим, отправим СДЭКом завтра до обеда, трек пришлём сюда.");
   msg(defect, at(1, 10, 35), false, "Шов на левом рукаве разошёлся после первой стирки при 30°. Могу прислать фото.");
   msg(defect, at(1, 11, 0), true, "Спасибо, что написали! Пришлите, пожалуйста, фото — оформим возврат или обмен.");
   msg(hadizhat, at(1, 12, 10), false, "Здравствуйте! Можно оплатить завтра утром?");
   msg(hadizhat, at(1, 12, 25), true, "Добрый день! Да, конечно, держим заказ за вами до завтрашнего вечера.");
-  msg(mine, at(1, 19, 50), true, "Здравствуйте! Заказ собрали, реквизиты во вкладке «Мои заказы». После оплаты пришлите сюда чек.");
+  msg(mine, at(1, 19, 50), true, "Здравствуйте! Заказ собрали, оплатить картой можно кнопкой во вкладке «Мои заказы».");
 
   // Задачи сотрудников
   const task = (title, due, assignee, extra = {}) => db.staff_tasks.push({ id: ++db.seq.staff_tasks, title, due_at: iso(due),
