@@ -8,7 +8,7 @@ import { GITHUB_REPO } from "./config.js?v=20261001b";
 const CATALOG_PATH = "catalog/catalog.json";
 const PHOTOS_DIR = "catalog/photos";
 const TOKEN_KEY = "temp_github_token";
-const EMPTY_CATALOG = { products: [], hidden: [], variants: {}, stock: {}, staff: [], prices: {} };
+const EMPTY_CATALOG = { products: [], hidden: [], variants: {}, stock: {}, staff: [], prices: {}, sizeCharts: {} };
 
 /** owner/repo: из настроек или из адреса сайта (логин.github.io/репозиторий) */
 export const repository = GITHUB_REPO || (() => {
@@ -116,6 +116,11 @@ export const githubApi = {
     if (value) c.prices[id] = { price: value.price, old: value.old || 0 }; else delete c.prices[id];
   }, "Цена"),
   setStock: (id, qty) => updateCatalog((c) => { if (qty) c.stock[id] = { qty }; else delete c.stock[id]; }, "Остатки"),
+  /** Таблица размеров товара: { type, rows }; null — вернуть таблицу по умолчанию */
+  setSizeChart: (id, chart) => updateCatalog((c) => {
+    c.sizeCharts ||= {};
+    if (chart) c.sizeCharts[id] = chart; else delete c.sizeCharts[id];
+  }, "Таблица размеров"),
   async createProduct(product) {
     const num = Date.now();
     const colors = [];
@@ -133,6 +138,7 @@ export const githubApi = {
       c.products = c.products.filter((p) => p.num !== id);
       delete c.variants[id];
       delete c.stock[id];
+      if (c.sizeCharts) delete c.sizeCharts[id];
     }, "Удалён товар");
     for (const color of removed?.colors || []) await deleteFile(color.image).catch(() => {});
   },
