@@ -126,7 +126,8 @@ const toOrder = (r) => ({
   items: Array.isArray(r.items) ? r.items : [], total: Number(r.total) || 0,
   name: r.customer_name, phone: r.phone, way: r.delivery_way || "", addr: r.address || "",
   payDetails: r.payment_details || "", note: r.manager_note || "", message: r.manager_note || "",
-  payment: r.payment_method ? { method: r.payment_method, amount: Number(r.paid_amount) || 0, at: r.paid_at, by: r.paid_by || "" } : null,
+  payment: r.payment_method ? { method: r.payment_method, amount: Number(r.paid_amount) || 0, at: r.paid_at, by: r.paid_by || "",
+    online: /^Онлайн-оплата/.test(r.paid_by || ""), test: Boolean(r.online_pay_test) } : null,
   user: { id: r.user_id, username: r.username },
   // возврат (supabase-crm.sql): просьба покупателя, отказ менеджера и оформленный возврат
   deliveredAt: r.delivered_at || null,
@@ -151,6 +152,15 @@ async function withChat(orders) {
     const s = byId.get(o.num);
     return s ? { ...o, chat: { total: Number(s.total), lastStaff: Number(s.last_staff), lastCustomer: Number(s.last_customer) } } : o;
   });
+}
+
+/** Функция online-pay; ошибка — { code }: not_configured, not_awaiting, provider, network или server */
+async function payFunction(action, num) {
+  if (!(await loadLibrary()) || (action !== "link" && !(await supabaseLogin()))) throw { code: "network" };
+  const { data, error } = await db().functions.invoke("online-pay", { body: { action, order_id: num } });
+  if (!error) return data;
+  const body = await error.context?.json?.().catch(() => null);
+  throw { code: body?.error || (error.name === "FunctionsFetchError" ? "network" : "server"), raw: error };
 }
 
 /** Менеджер меняет заказ, только если тот ещё в ожидаемом статусе — иначе его уже обработал другой */
@@ -226,6 +236,14 @@ export const supabaseApi = {
   /** Оформленные заявки за период с менеджером, который их принял (только директор) */
   analyticsOrders: (from, to) => rpc("analytics_orders", { p_from: from, p_to: to }),
   markDelivered: (num) => setStatus(num, "paid", { status: "delivered" }),
+
+  /* ---------- Онлайн-оплата картой (supabase-online-pay.sql, функция online-pay) ---------- */
+  /** Ссылка на страницу оплаты заказа: { url } или { paid: true }, если он уже оплачен */
+  onlinePay: (num) => payFunction("create", num),
+  /** Покупатель вернулся с оплаты: { paid } — прошла ли она */
+  onlinePayCheck: (num) => payFunction("check", num),
+  /** Менеджер: постоянная ссылка на оплату заказа картой — CRM подставляет её в реквизиты */
+  onlinePayLink: (num) => payFunction("link", num),
 
   /* ---------- CRM (supabase-crm.sql): история заказа, возвраты, закупочные цены, источник клиента, выгрузка ---------- */
   orderHistory: (num) => rpc("order_history", { p_id: num }),
