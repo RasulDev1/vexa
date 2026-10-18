@@ -8,7 +8,7 @@ import { BASE_PRODUCTS, COLOR_NAMES } from "./data.js?v=20261001b";
 import { STORAGE_PREFIX, storage, toast } from "./core.js?v=20261001b";
 import { DEMO_DIRECTOR } from "./config.js?v=20261001b";
 
-const DB_KEY = STORAGE_PREFIX + "demo_db_v3";
+const DB_KEY = STORAGE_PREFIX + "demo_db_v4";
 const EVENT_KEY = STORAGE_PREFIX + "demo_event";
 const ME = 1001;                       // «Telegram ID» посетителя демо — он же покупатель в магазине
 const STAFF_TOPIC = "demo-staff";
@@ -215,8 +215,7 @@ function seed() {
     status: "paid", mgr: 1, acc: 15, paid: 70, method: "cash" });
   order({ uid: 104, t: now - 150 * M, items: [item(10, "M")], way: CDEK, addr: "Краснодар, ул. Северная, 324, ПВЗ СДЭК",
     pay: "cod", status: "awaiting_payment", mgr: 3, acc: 25 });
-  order({ uid: 106, t: now - 70 * M, items: [item(9, "S"), item(4, "S")], way: CITY, addr: "ул. Кубанская Набережная, 37, кв. 90", status: "new" });
-  order({ uid: 102, t: now - 18 * M, items: [item(6, "XL")], way: PICKUP, pay: "cash", status: "new" });
+  // Новых заказов в демо нет: первый новый заказ в CRM — тот, что оформит сам посетитель
 
   // Переписка по заказам
   const msg = (orderId, time, fromStaff, body) =>
