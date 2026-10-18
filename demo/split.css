@@ -84,6 +84,8 @@ a { color: inherit; }
 .stage[data-view="shop"] .pane-crm, .stage[data-view="crm"] .pane-shop { display: none; }
 .stage[data-view="shop"] .pane-shop { flex: 1 1 auto; }
 
+.disclaimer { flex: none; margin: 0; padding: 0 var(--gutter) 10px; text-align: center; color: var(--muted); opacity: .8;
+  font: 700 9px/1.5 Unbounded, Manrope, sans-serif; letter-spacing: .08em; text-transform: uppercase; }
 .caption { margin: 10px 0 0; font-size: 13px; color: var(--muted); text-align: center; }
 
 /* Телефон: 390×844, масштабируется по высоте сцены (split.js задаёт --s) */
