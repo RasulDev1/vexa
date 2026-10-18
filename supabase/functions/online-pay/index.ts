@@ -208,7 +208,7 @@ async function check(req: Request, orderId: number) {
 }
 
 /* ---------- Демо-сайт: настоящая тестовая страница Stripe для заказа, который хранится в браузере ---------- */
-const TEST_CARD_HINT = "Тестовый магазин, деньги не списываются. Оплатить можно только тестовой картой 4242 4242 4242 4242: срок любой в будущем, CVC любые 3 цифры. Настоящие карты не принимаются.";
+const TEST_CARD_HINT = "Тестовый магазин, деньги не списываются. Номер карты — только тестовый 4242 4242 4242 4242, настоящие карты не принимаются. Остальные данные можно выдумать: срок любой в будущем, CVC любые 3 цифры, почта и имя любые.";
 
 /** Сумму присылает сам демо-сайт: заказа в базе нет. С боевым ключом не работает — деньги списались бы по-настоящему. */
 async function demoCreate(orderId: number, amount: number) {
@@ -227,7 +227,7 @@ async function demoCreate(orderId: number, amount: number) {
     locale: "auto",
     "custom_text[submit][message]": TEST_CARD_HINT,
     success_url: `${back}&session={CHECKOUT_SESSION_ID}`, // Stripe сам подставит id страницы оплаты
-    cancel_url: back,
+    cancel_url: `${back}&cancel=1`, // без cancel страница демо снова открыла бы Stripe
   }, crypto.randomUUID());
   if (!session.url) throw { code: "server" };
   return { url: session.url };

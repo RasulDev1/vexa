@@ -22,11 +22,11 @@ export const SUPABASE_KEY = "";
 // Имя директора в демо-данных
 export const DEMO_DIRECTOR = "Директор";
 
-// Онлайн-оплата картой. Кнопка «Оплатить картой онлайн» открывает страницу демо-оплаты (pay.html), а та —
-// тестовую страницу Stripe через функцию online-pay магазина (карта 4242 4242 4242 4242, деньги не списываются).
-// Функция не ответила — на pay.html можно оплатить и без карты, имитацией.
+// Онлайн-оплата картой. Кнопка «Оплатить картой онлайн» сразу открывает тестовую страницу Stripe через функцию
+// online-pay магазина (карта 4242 4242 4242 4242, деньги не списываются). После оплаты Stripe возвращает
+// на pay.html, и заказ становится оплаченным.
 export const ONLINE_PAY = true;
 export const ONLINE_PAY_TESTERS = [];
 export const ONLINE_PAY_TEST = true;
-// Функция online-pay магазина (действия demo_create и demo_check). Пусто — только имитация оплаты.
+// Функция online-pay магазина (действия demo_create и demo_check).
 export const DEMO_PAY_FUNCTION = "https://ztcltngfpnhhuzyyqnfw.supabase.co/functions/v1/online-pay";
