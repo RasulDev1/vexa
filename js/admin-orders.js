@@ -91,7 +91,7 @@ function payFormHtml(o) {
 
 /** Как оплатили: «Оплачено картой · 5 000 ₽ · Иванов, 05.10 14:30» */
 const paymentHtml = (o) => o.payment
-  ? `<p class="ord-pay">Оплачено ${o.payment.online ? `картой онлайн${o.payment.test ? " (тест ЮKassa)" : ""}` : PAY_METHOD[o.payment.method] || ""} · <b>${formatPrice(o.payment.amount)}</b>${
+  ? `<p class="ord-pay">Оплачено ${o.payment.online ? `картой онлайн${o.payment.test ? " (тест)" : ""}` : PAY_METHOD[o.payment.method] || ""} · <b>${formatPrice(o.payment.amount)}</b>${
     o.payment.amount !== Number(o.total) ? ` <small>(сумма заказа ${formatPrice(Number(o.total) || 0)})</small>` : ""}${
     o.payment.by || o.payment.at ? `<br><small>${[escapeHtml(o.payment.by), o.payment.at && formatDate(o.payment.at)].filter(Boolean).join(", ")}</small>` : ""}</p>` : "";
 

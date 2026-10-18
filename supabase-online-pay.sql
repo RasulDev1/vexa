@@ -1,20 +1,20 @@
 -- =====================================================================
---  VEXA · онлайн-оплата картой через ЮKassa (сначала — тестовый магазин, деньги не списываются)
+--  VEXA · онлайн-оплата картой через Stripe (сначала — тестовые ключи, деньги не списываются)
 --  Запускать ПОСЛЕ supabase-payments.sql.
 --  Supabase → SQL Editor → новая вкладка (New query) → вставить ЦЕЛИКОМ → Run.
 --  Можно запускать повторно. Заказы не меняются.
 --
 --  Как работает:
 --   • менеджер принял заказ → у покупателя в «Мои заказы» кнопка «Оплатить картой онлайн»;
---   • функция online-pay создаёт платёж в ЮKassa на сумму заказа из базы и открывает страницу оплаты;
---   • ЮKassa сообщает функции об оплате, функция перепроверяет платёж в ЮKassa и отмечает заказ оплаченным.
+--   • функция online-pay создаёт страницу оплаты Stripe на сумму заказа из базы;
+--   • Stripe сообщает функции об оплате, функция перепроверяет оплату в Stripe и отмечает заказ оплаченным.
 --  В аналитике онлайн-оплата считается как «карта», в истории заказа видно, что оплачено онлайн.
 -- =====================================================================
 
--- ---------- 1. Платёж ЮKassa у заказа ----------
-alter table public.orders add column if not exists online_pay_id   text;     -- id платежа в ЮKassa
+-- ---------- 1. Онлайн-платёж у заказа ----------
+alter table public.orders add column if not exists online_pay_id   text;     -- id страницы оплаты в платёжной системе
 alter table public.orders add column if not exists online_pay_url  text;     -- страница оплаты, пока платёж не завершён
-alter table public.orders add column if not exists online_pay_test boolean;  -- платёж тестового магазина
+alter table public.orders add column if not exists online_pay_test boolean;  -- платёж по тестовым ключам
 create unique index if not exists orders_online_pay_id_idx on public.orders (online_pay_id) where online_pay_id is not null;
 
 -- ---------- 2. Покупатель: свой заказ, который ждёт оплаты ----------
@@ -45,7 +45,7 @@ returns boolean language plpgsql volatile security definer set search_path = '' 
 declare done bigint;
 begin
   update public.orders set status = 'paid', payment_method = 'card', paid_amount = round(p_amount, 2), paid_at = now(),
-    paid_by = case when p_test then 'Онлайн-оплата ЮKassa (тест)' else 'Онлайн-оплата ЮKassa' end,
+    paid_by = case when p_test then 'Онлайн-оплата (тест)' else 'Онлайн-оплата' end,
     online_pay_id = p_pay_id, online_pay_url = null, online_pay_test = p_test
   where id = p_id and status = 'awaiting_payment'
   returning id into done;

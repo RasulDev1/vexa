@@ -128,7 +128,6 @@ const toOrder = (r) => ({
   payDetails: r.payment_details || "", note: r.manager_note || "", message: r.manager_note || "",
   payment: r.payment_method ? { method: r.payment_method, amount: Number(r.paid_amount) || 0, at: r.paid_at, by: r.paid_by || "",
     online: /^Онлайн-оплата/.test(r.paid_by || ""), test: Boolean(r.online_pay_test) } : null,
-  onlinePayStarted: Boolean(r.online_pay_id), // покупатель открывал страницу оплаты ЮKassa (supabase-online-pay.sql)
   user: { id: r.user_id, username: r.username },
   // возврат (supabase-crm.sql): просьба покупателя, отказ менеджера и оформленный возврат
   deliveredAt: r.delivered_at || null,
@@ -238,7 +237,7 @@ export const supabaseApi = {
   analyticsOrders: (from, to) => rpc("analytics_orders", { p_from: from, p_to: to }),
   markDelivered: (num) => setStatus(num, "paid", { status: "delivered" }),
 
-  /* ---------- Онлайн-оплата ЮKassa (supabase-online-pay.sql, функция online-pay) ---------- */
+  /* ---------- Онлайн-оплата картой (supabase-online-pay.sql, функция online-pay) ---------- */
   /** Ссылка на страницу оплаты заказа: { url } или { paid: true }, если он уже оплачен */
   onlinePay: (num) => payFunction("create", num),
   /** Покупатель вернулся с оплаты: { paid } — прошла ли она */

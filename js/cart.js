@@ -220,7 +220,7 @@ const ORDER_STATUS = { new: "Проверяем наличие", accepted: "Жд
 export const paymentDetails = (order) => order.payDetails || order.payUrl || "";
 const isPaymentLink = (text) => /^https:\/\/\S+$/.test(text.trim());
 
-/* ---------- Онлайн-оплата картой (ЮKassa) ---------- */
+/* ---------- Онлайн-оплата картой (Stripe) ---------- */
 // Пока ONLINE_PAY выключена, кнопку видят только проверяющие из ONLINE_PAY_TESTERS (config.js)
 const onlinePayOn = () => Boolean(api.onlinePay) && (ONLINE_PAY || ONLINE_PAY_TESTERS.map(String).includes(String(telegramUser?.id)));
 const PAY_ERRORS = { not_configured: "Онлайн-оплата пока не настроена. Оплатите по реквизитам.",
@@ -248,7 +248,7 @@ async function payOnline(button) {
   }
 }
 
-/** Покупатель вернулся со страницы оплаты: спрашиваем, прошла ли она (не дожидаясь уведомления ЮKassa) */
+/** Покупатель вернулся со страницы оплаты: спрашиваем, прошла ли она (не дожидаясь события Stripe) */
 async function checkOnlinePay() {
   const fromUrl = Number(new URLSearchParams(location.search).get("paid")) || 0;
   const num = fromUrl || storage.get(payingKey, 0);
@@ -369,7 +369,7 @@ function myOrderHtml(o) {
       <button class="ghost copy" data-copy="${o.num}">Скопировать реквизиты</button></div>
       ${isPaymentLink(details) ? `<a class="primary pay" href="${escapeHtml(details)}" data-pay>Перейти к оплате</a>` : ""}` : ""}
     ${status === "accepted" && onlinePayOn() ? `<button class="primary pay" data-pay-online="${o.num}">Оплатить картой онлайн</button>
-      <p class="adm-sub" style="margin-top:6px">Оплата через ЮKassa. Статус заказа обновится сам.</p>` : ""}
+      <p class="adm-sub" style="margin-top:6px">Оплата на защищённой странице Stripe. Статус заказа обновится сам.</p>` : ""}
     ${status === "rejected" && o.message ? `<p class="ord-note">${escapeHtml(o.message)}</p>` : ""}
     ${returnInfoHtml(o)}
     ${useSupabase && status === "accepted" ? `<p class="adm-sub" style="margin-top:10px">Оплатили? Отправьте чек менеджеру в чат.</p>` : ""}
@@ -455,7 +455,7 @@ export function initCart() {
     if (state.tab === "orders") renderMyOrders(true);
   });
   if (useSupabase) watchMyOrders();
-  if (useSupabase && new URLSearchParams(location.search).has("paid")) // ЮKassa вернула покупателя на сайт
+  if (useSupabase && new URLSearchParams(location.search).has("paid")) // Stripe вернул покупателя на сайт
     checkOnlinePay().then(() => { history.replaceState(null, "", location.pathname); setTab("orders"); });
 }
 
