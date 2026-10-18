@@ -8,7 +8,7 @@ import { BASE_PRODUCTS, COLOR_NAMES } from "./data.js?v=20261001b";
 import { STORAGE_PREFIX, storage, toast } from "./core.js?v=20261001b";
 import { DEMO_DIRECTOR } from "./config.js?v=20261001b";
 
-const DB_KEY = STORAGE_PREFIX + "demo_db_v4";
+const DB_KEY = STORAGE_PREFIX + "demo_db_v5";
 const EVENT_KEY = STORAGE_PREFIX + "demo_event";
 const ME = 1001;                       // «Telegram ID» посетителя демо — он же покупатель в магазине
 const STAFF_TOPIC = "demo-staff";
@@ -110,7 +110,7 @@ function seed() {
     product_costs: { 1: 1250, 2: 1900, 3: 2100, 4: 650, 5: 2700, 6: 3600, 7: 7400, 8: 520, 9: 1700, 10: 1450 },
     customer_sources: { 101: "Instagram", 102: "Посоветовали друзья", 103: "Instagram", 104: "Авито", 105: "ВКонтакте",
       106: "Instagram", 107: "Telegram", 109: "Посоветовали друзья", 110: "Увидел магазин", 112: "Instagram" },
-    customer_notes: [], customer_tags: { 101: ["постоянный", "VIP"], 102: ["был возврат"], 105: ["постоянный"], 108: ["брак"] },
+    customer_notes: [], customer_tags: { 101: ["постоянный", "VIP"], 105: ["постоянный"] },
     staff_tasks: [], product_reviews: [], staff_accounts: clone(STAFF),
     catalog_state: { data: {}, version: 1 },
   };
@@ -182,60 +182,23 @@ function seed() {
     status: "delivered", mgr: 2, acc: 25, paid: 140, method: "card", deliv: 2 * 1440 });
   order({ uid: 101, t: at(12, 14, 5), items: [item(7, "43"), item(8, "One size")], way: PICKUP, pay: "cash",
     status: "delivered", mgr: 3, acc: 15, paid: 300, method: "cash", deliv: 300 });
-  order({ uid: 106, t: at(12, 19, 40), items: [item(3, "S")], way: POST, addr: "350000, Краснодар, ул. Северная, 310, кв. 14",
-    status: "cancelled", mgr: 2, acc: 50, reject: "Размер S закончился. Можем предложить M — напишите, если подойдёт." });
-  order({ uid: 102, t: at(11, 10, 15), items: [item(2, "L", 1, "#3E3834")], way: CITY, addr: "ул. Ставропольская, 75, кв. 32",
-    status: "returned", mgr: 3, acc: 30, paid: 200, method: "card", deliv: 1440,
-    request: { reason: "Не подошёл размер: маломерит", at: at(9, 12, 0) },
-    refund: { reason: "Не подошёл размер, вещь с бирками", amount: 4290, method: "card", approved: at(9, 13, 10), done: at(8, 16, 30), restock: true } });
   order({ uid: 105, t: at(10, 9, 50), items: [item(5, "M", 1, "#D8C8B0"), item(4, "S")], way: CDEK, addr: "Владикавказ, пр. Мира, 9, ПВЗ СДЭК",
     pay: "cod", status: "delivered", mgr: 2, acc: 20, paid: 3 * 1440, method: "card", deliv: 3 * 1440 });
   order({ uid: 103, t: at(9, 16, 30), items: [item(10, "L", 2)], way: PICKUP, pay: "cash",
     status: "delivered", mgr: 2, acc: 10, paid: 120, method: "cash", deliv: 120 });
   order({ uid: 107, t: at(8, 12, 45), items: [item(7, "42", 1, "#B3122E")], way: CDEK, addr: "Назрань, ул. Московская, 22, ПВЗ СДЭК",
     status: "delivered", mgr: 3, acc: 40, paid: 180, method: "card", deliv: 2 * 1440 });
-  const defect = order({ uid: 108, t: at(7, 18, 10), items: [item(9, "L")], way: CITY, addr: "ул. Гимназическая, 51, кв. 8",
-    status: "return_requested", mgr: 2, acc: 35, paid: 160, method: "card", deliv: 1440,
-    request: { reason: "Брак: разошёлся шов на рукаве после первой стирки", at: at(1, 10, 30) } });
-  const amina = order({ uid: 109, t: at(6, 13, 0), items: [item(5, "L", 1, "#1B1B1F")], way: CDEK, addr: "Махачкала, ул. Ярагского, 64, ПВЗ СДЭК",
-    status: "paid", mgr: 3, acc: 30, paid: 240, method: "card" });
   order({ uid: 110, t: at(5, 11, 30), items: [item(3, "XL"), item(4, "L")], way: PICKUP, pay: "cash",
     status: "delivered", mgr: 3, acc: 20, paid: 90, method: "cash", deliv: 95 });
   order({ uid: 101, t: at(4, 17, 15), items: [item(1, "M", 2)], way: PICKUP,
     status: "delivered", mgr: 2, acc: 10, paid: 60, method: "card", deliv: 65 });
   order({ uid: ME, t: at(3, 12, 20), items: [item(4, "M"), item(9, "M")], way: CDEK, addr: "Краснодар, ул. Красная, 120, ПВЗ СДЭК",
     status: "delivered", mgr: 2, acc: 30, paid: 150, method: "card", deliv: 1440 });
-  order({ uid: 111, t: at(2, 15, 40), items: [item(6, "L")], way: POST, addr: "344000, Ростов-на-Дону, ул. Садовая, 18, кв. 3",
-    status: "cancelled", mgr: 3, acc: 90, reject: "Покупатель передумал, попросил отменить по телефону." });
-  const hadizhat = order({ uid: 112, t: at(1, 11, 5), items: [item(5, "S", 1, "#D8C8B0")], way: CDEK, addr: "Грозный, пр. Путина, 3, ПВЗ СДЭК",
-    status: "awaiting_payment", mgr: 2, acc: 45 });
-  const mine = order({ uid: ME, t: at(1, 19, 25), items: [item(7, "44"), item(8, "One size")], way: PICKUP,
-    status: "awaiting_payment", mgr: 2, acc: 20 });
-  order({ uid: 103, t: now - 4 * H, items: [item(2, "XL"), item(1, "XL")], way: PICKUP, pay: "cash",
-    status: "paid", mgr: 1, acc: 15, paid: 70, method: "cash" });
-  order({ uid: 104, t: now - 150 * M, items: [item(10, "M")], way: CDEK, addr: "Краснодар, ул. Северная, 324, ПВЗ СДЭК",
-    pay: "cod", status: "awaiting_payment", mgr: 3, acc: 25 });
-  // Новых заказов в демо нет: первый новый заказ в CRM — тот, что оформит сам посетитель
-
-  // Переписка по заказам
-  const msg = (orderId, time, fromStaff, body) =>
-    db.order_messages.push({ id: ++db.seq.order_messages, order_id: orderId, user_id: fromStaff ? null : db.orders.find((o) => o.id === orderId).user_id,
-      from_staff: fromStaff, body, file_name: null, file_type: null, file_size: null, file_data: null, created_at: iso(time) });
-  msg(amina, at(6, 13, 40), false, "Здравствуйте! Оплатил онлайн картой. Когда отправите?");
-  msg(amina, at(6, 14, 5), true, "Добрый день! Оплату видим, отправим СДЭКом завтра до обеда, трек пришлём сюда.");
-  msg(defect, at(1, 10, 35), false, "Шов на левом рукаве разошёлся после первой стирки при 30°. Могу прислать фото.");
-  msg(defect, at(1, 11, 0), true, "Спасибо, что написали! Пришлите, пожалуйста, фото — оформим возврат или обмен.");
-  msg(hadizhat, at(1, 12, 10), false, "Здравствуйте! Можно оплатить завтра утром?");
-  msg(hadizhat, at(1, 12, 25), true, "Добрый день! Да, конечно, держим заказ за вами до завтрашнего вечера.");
-  msg(mine, at(1, 19, 50), true, "Здравствуйте! Заказ собрали, оплатить картой можно кнопкой во вкладке «Мои заказы».");
 
   // Задачи сотрудников
   const task = (title, due, assignee, extra = {}) => db.staff_tasks.push({ id: ++db.seq.staff_tasks, title, due_at: iso(due),
     customer_id: null, customer_name: null, order_id: null, assignee_id: assignee, assignee_name: staffName(assignee),
     created_by_id: 1, created_by: staffName(1), created_at: iso(now - 2 * D), done_at: null, done_by: null, ...extra });
-  task("Проверить шов на свитшоте и решить по возврату", at(0, 18, 0), 1, { customer_id: 108, customer_name: "Морозов Алексей", order_id: defect });
-  task("Напомнить об оплате заказа", now + 3 * H, 2, { customer_id: 112, customer_name: "Омаров Хасан", order_id: hadizhat });
-  task("Отправить СДЭКом и прислать трек-номер", now - 5 * H, 3, { customer_id: 109, customer_name: "Курбанов Амир", order_id: amina });
   task("Принять поставку кроссовок Dunk Low (размеры 42–44)", now + D + 2 * H, 1);
   task("Предложить Тимуру новинки сезона", now + 3 * D, 2, { customer_id: 101, customer_name: "Алиев Тимур" });
   task("Обновить фото витрины", now - 2 * D, 3, { done_at: iso(now - 2 * D + H), done_by: staffName(3) });
@@ -243,8 +206,6 @@ function seed() {
   // Заметки о клиентах
   const note = (uid, body, author, time) => db.customer_notes.push({ id: ++db.seq.customer_notes, user_id: uid, body, author: staffName(author), author_id: author, created_at: iso(time) });
   note(101, "Берёт кроссовки, размер 43. Новинки предлагать первым.", 2, at(4, 18, 0));
-  note(102, "Маломерит в бёдрах — в следующий раз советовать на размер больше.", 3, at(8, 17, 0));
-  note(109, "Покупал в подарок брату, просил упаковку без чека.", 3, at(6, 13, 30));
 
   // Отзывы о товарах
   const review = (product, uid, rating, body, time, extra = {}) => {
