@@ -156,7 +156,7 @@ async function withChat(orders) {
 
 /** Функция online-pay; ошибка — { code }: not_configured, not_awaiting, provider, network или server */
 async function payFunction(action, num) {
-  if (!(await loadLibrary()) || !(await supabaseLogin())) throw { code: "network" };
+  if (!(await loadLibrary()) || (action !== "link" && !(await supabaseLogin()))) throw { code: "network" };
   const { data, error } = await db().functions.invoke("online-pay", { body: { action, order_id: num } });
   if (!error) return data;
   const body = await error.context?.json?.().catch(() => null);
@@ -242,6 +242,8 @@ export const supabaseApi = {
   onlinePay: (num) => payFunction("create", num),
   /** Покупатель вернулся с оплаты: { paid } — прошла ли она */
   onlinePayCheck: (num) => payFunction("check", num),
+  /** Менеджер: постоянная ссылка на оплату заказа картой — CRM подставляет её в реквизиты */
+  onlinePayLink: (num) => payFunction("link", num),
 
   /* ---------- CRM (supabase-crm.sql): история заказа, возвраты, закупочные цены, источник клиента, выгрузка ---------- */
   orderHistory: (num) => rpc("order_history", { p_id: num }),

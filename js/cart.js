@@ -221,8 +221,12 @@ export const paymentDetails = (order) => order.payDetails || order.payUrl || "";
 const isPaymentLink = (text) => /^https:\/\/\S+$/.test(text.trim());
 
 /* ---------- Онлайн-оплата картой (Stripe) ---------- */
-// Пока ONLINE_PAY выключена, кнопку видят только проверяющие из ONLINE_PAY_TESTERS (config.js)
-const onlinePayOn = () => Boolean(api.onlinePay) && (ONLINE_PAY || ONLINE_PAY_TESTERS.map(String).includes(String(telegramUser?.id)));
+// Пока ONLINE_PAY выключена, онлайн-оплату видят только проверяющие из ONLINE_PAY_TESTERS (config.js)
+export const onlinePayFor = (userId) => ONLINE_PAY || ONLINE_PAY_TESTERS.map(String).includes(String(userId));
+const onlinePayOn = () => Boolean(api.onlinePay) && onlinePayFor(telegramUser?.id);
+/** Ссылка на оплату картой, которую CRM подставила в реквизиты (функция online-pay) */
+const ONLINE_LINK = /https:\/\/\S+\/functions\/v1\/online-pay\?order=\d+&sig=[0-9a-f]+/;
+export const onlinePayLink = (text) => ONLINE_LINK.exec(text || "")?.[0] || "";
 const PAY_ERRORS = { not_configured: "Онлайн-оплата пока не настроена. Оплатите по реквизитам.",
   test_only: "Онлайн-оплата пока в тестовом режиме. Оплатите по реквизитам.",
   not_awaiting: "Статус заказа изменился. Обновляем…", network: "Нет связи. Проверьте интернет и повторите." };
@@ -358,21 +362,24 @@ async function sendReturn(button) {
 }
 
 function myOrderHtml(o) {
-  const status = o.status || "new", details = paymentDetails(o), total = formatPrice(Number(o.total) || 0);
+  const status = o.status || "new", total = formatPrice(Number(o.total) || 0);
+  const link = onlinePayLink(paymentDetails(o)), details = paymentDetails(o).replace(link, "").trim(); // ссылку показываем кнопкой
   return `<article class="ord st-${status}">
     <div class="ord-top my"><b>Заказ от ${orderDate(o.date)}</b><span class="ord-st">${ORDER_STATUS[status]}</span></div>
     ${orderItemsHtml(o, true)}
     <p class="ord-way">${escapeHtml(o.way)}${o.addr ? ": " + escapeHtml(o.addr) : ""}</p>
     <p class="ord-sum">Итого <b>${total}</b></p>
-    ${status === "accepted" && details ? `${o.note ? `<p class="ord-note">${escapeHtml(o.note)}</p>` : ""}
-      <div class="req"><p class="req-h">Реквизиты для оплаты · ${total}</p><p class="req-t">${escapeHtml(details)}</p>
+    ${status === "accepted" && o.note && (details || link) ? `<p class="ord-note">${escapeHtml(o.note)}</p>` : ""}
+    ${status === "accepted" && link ? `<a class="primary pay" href="${escapeHtml(link)}" data-pay data-pay-num="${o.num}">Оплатить картой онлайн · ${total}</a>
+      <p class="adm-sub" style="margin-top:6px">Оплата на защищённой странице Stripe. Статус заказа обновится сам.</p>` : ""}
+    ${status === "accepted" && details ? `<div class="req"><p class="req-h">Реквизиты для оплаты · ${total}</p><p class="req-t">${escapeHtml(details)}</p>
       <button class="ghost copy" data-copy="${o.num}">Скопировать реквизиты</button></div>
       ${isPaymentLink(details) ? `<a class="primary pay" href="${escapeHtml(details)}" data-pay>Перейти к оплате</a>` : ""}` : ""}
-    ${status === "accepted" && onlinePayOn() ? `<button class="primary pay" data-pay-online="${o.num}">Оплатить картой онлайн</button>
+    ${status === "accepted" && !link && onlinePayOn() ? `<button class="primary pay" data-pay-online="${o.num}">Оплатить картой онлайн</button>
       <p class="adm-sub" style="margin-top:6px">Оплата на защищённой странице Stripe. Статус заказа обновится сам.</p>` : ""}
     ${status === "rejected" && o.message ? `<p class="ord-note">${escapeHtml(o.message)}</p>` : ""}
     ${returnInfoHtml(o)}
-    ${useSupabase && status === "accepted" ? `<p class="adm-sub" style="margin-top:10px">Оплатили? Отправьте чек менеджеру в чат.</p>` : ""}
+    ${useSupabase && status === "accepted" && details ? `<p class="adm-sub" style="margin-top:10px">${link ? "Платите по реквизитам? Отправьте чек менеджеру в чат." : "Оплатили? Отправьте чек менеджеру в чат."}</p>` : ""}
     ${useSupabase ? chatButtonHtml(o, "customer") : ""}
     ${status === "new" ? `<p class="adm-sub">${hasOrdersBackend ? "Проверяем наличие. Как только всё подтвердим, здесь появятся реквизиты для оплаты." : "Статус заказа уточняйте у менеджера в Telegram."}</p>` : ""}
   </article>`;
@@ -427,7 +434,7 @@ export function initCart() {
     const payOnlineButton = e.target.closest("[data-pay-online]:not(:disabled)");
     if (payOnlineButton) return payOnline(payOnlineButton);
     const pay = e.target.closest("[data-pay]");
-    if (pay) { e.preventDefault(); openLink(pay.href); }
+    if (pay) { e.preventDefault(); if (pay.dataset.payNum) storage.set(payingKey, Number(pay.dataset.payNum)); openLink(pay.href); }
     const chatButton = e.target.closest("[data-chat]");
     const chatOrder = chatButton && state.myOrders.find((o) => o.num === Number(chatButton.dataset.chat));
     if (chatOrder) { haptic(); openChat(chatOrder, "customer"); }

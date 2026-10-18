@@ -3,6 +3,11 @@
 // Тестовые ключи Stripe выдаёт сразу после регистрации по почте, ИП и самозанятость не нужны.
 //
 // Что делает:
+//   { action: "link", order_id }   — от менеджера (вход по логину): постоянная ссылка на оплату заказа. CRM сама
+//                                    подставляет её в реквизиты при «Принять», бот и «Мои заказы» показывают её покупателю;
+//   GET ?order=…&sig=…             — покупатель открыл эту ссылку: функция открывает ему страницу оплаты Stripe;
+//   GET ?done=…&sig=…              — Stripe вернул покупателя после оплаты: функция отмечает заказ оплаченным
+//                                    и отправляет покупателя в магазин;
 //   { action: "create", order_id } — от покупателя: создаёт страницу оплаты на сумму заказа из базы и возвращает ссылку;
 //   { action: "check", order_id }  — от покупателя, когда он вернулся со страницы оплаты: спрашивает Stripe и отмечает оплату;
 //   событие Stripe checkout.session.completed — перепроверяет оплату в Stripe и отмечает заказ оплаченным.
@@ -30,6 +35,7 @@ const TESTERS = (Deno.env.get("PAY_TESTERS") ?? "").split(/[\s,]+/).filter(Boole
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY")!;
 const API = "https://api.stripe.com/v1";
+const FUNCTION_URL = `${SUPABASE_URL}/functions/v1/online-pay`;
 
 if (!SECRET_KEY) console.error("Нет секрета STRIPE_SECRET_KEY: Edge Functions → Secrets");
 
@@ -66,6 +72,20 @@ async function stripe(path: string, form?: Record<string, string>, idempotencyKe
   return result;
 }
 
+/** Подпись номера заказа в ссылке на оплату — чтобы ссылку нельзя было подобрать перебором номеров */
+async function sign(orderId: number): Promise<string> {
+  const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(SECRET_KEY), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  const mac = new Uint8Array(await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(`vexa-pay:${orderId}`)));
+  return Array.from(mac.slice(0, 16), (b) => b.toString(16).padStart(2, "0")).join("");
+}
+const payLink = async (orderId: number) => `${FUNCTION_URL}?order=${orderId}&sig=${await sign(orderId)}`;
+const doneLink = async (orderId: number) => `${FUNCTION_URL}?done=${orderId}&sig=${await sign(orderId)}`;
+/** Магазин после оплаты: бот (PAY_RETURN_URL) или сайт, который сам перечитает заказ */
+const shopAfter = (orderId: number) => RETURN_URL || `${SHOP_URL}${SHOP_URL.includes("?") ? "&" : "?"}paid=${orderId}`;
+
+/** Тестовый ключ: платить тестовой картой могут только проверяющие */
+const allowed = (userId: unknown) => !TEST_MODE || TESTERS.includes(String(userId));
+
 /** Заказ покупателя, который ждёт оплаты, — проверяет база по его подписи Telegram */
 async function customerOrder(req: Request, orderId: number): Promise<Json> {
   const initData = req.headers.get("x-telegram-init-data") ?? "";
@@ -78,9 +98,24 @@ async function customerOrder(req: Request, orderId: number): Promise<Json> {
     const reason = /pay:([a-z_]+)/.exec(error.message || "")?.[1];
     throw { code: reason || (error.code === "PGRST202" ? "no_function" : "server") };
   }
-  // тестовый ключ: платить тестовой картой могут только проверяющие
-  if (TEST_MODE && !TESTERS.includes(String(data.user_id))) throw { code: "test_only" };
+  if (!allowed(data.user_id)) throw { code: "test_only" };
   return data;
+}
+
+/** Заказ по номеру, без проверки покупателя (ссылка подписана) — ключом service_role */
+async function orderById(orderId: number): Promise<Json> {
+  const { data } = await admin.from("orders")
+    .select("id,user_id,total,status,online_pay_id,online_pay_url").eq("id", orderId).maybeSingle();
+  return data && { ...data, pay_id: data.online_pay_id, pay_url: data.online_pay_url };
+}
+
+/** Менеджер вошёл по логину и паролю — проверяет база по токену X-Staff-Token */
+async function isStaff(req: Request): Promise<boolean> {
+  const token = req.headers.get("x-staff-token") ?? "";
+  if (!token) return false;
+  const asStaff = createClient(SUPABASE_URL, ANON_KEY, { auth: { persistSession: false }, global: { headers: { "X-Staff-Token": token } } });
+  const { data } = await asStaff.rpc("staff_me");
+  return Boolean(data?.role);
 }
 
 /** Оплата прошла → заказ оплачен. Сумму и номер заказа берём из самой страницы оплаты Stripe. */
@@ -109,9 +144,14 @@ async function notifyCustomer(orderId: number, amount: number) {
   }).catch(() => {});
 }
 
-/** Покупатель нажал «Оплатить картой онлайн»: открытую страницу оплаты используем снова, иначе создаём новую */
+/** Покупатель нажал «Оплатить картой онлайн» */
 async function create(req: Request, orderId: number) {
-  const order = await customerOrder(req, orderId);
+  return openSession(await customerOrder(req, orderId));
+}
+
+/** Страница оплаты заказа: открытую используем снова, иначе создаём новую. { url } или { paid: true } */
+async function openSession(order: Json): Promise<Json> {
+  const orderId = Number(order.id);
   if (order.pay_id && order.pay_url) {
     const old = await stripe(`/checkout/sessions/${order.pay_id}`);
     if (await applyPayment(old)) return { paid: true };
@@ -119,7 +159,6 @@ async function create(req: Request, orderId: number) {
   }
   const kopecks = Math.round(Number(order.total) * 100);
   if (!(kopecks >= 50)) throw { code: "bad_amount" };
-  const back = RETURN_URL || `${SHOP_URL}${SHOP_URL.includes("?") ? "&" : "?"}paid=${orderId}`;
   const session = await stripe("/checkout/sessions", {
     mode: "payment",
     "line_items[0][quantity]": "1",
@@ -129,7 +168,7 @@ async function create(req: Request, orderId: number) {
     "metadata[order_id]": String(orderId),
     client_reference_id: String(orderId),
     locale: "auto",
-    success_url: back,
+    success_url: await doneLink(orderId), // функция отметит оплату и вернёт покупателя в магазин
     cancel_url: RETURN_URL || SHOP_URL,
   }, crypto.randomUUID());
   if (!session.url) throw { code: "server" };
@@ -149,8 +188,37 @@ async function check(req: Request, orderId: number) {
   return { paid: await applyPayment(session), status: session.status };
 }
 
+/** Ответ для браузера покупателя: переход или короткий текст (HTML Supabase показывает как текст) */
+const go = (url: string) => new Response(null, { status: 302, headers: { Location: url } });
+const say = (text: string, status = 200) => new Response(text, { status, headers: { "Content-Type": "text/plain; charset=utf-8" } });
+
+/** Покупатель открыл ссылку на оплату из реквизитов или вернулся со страницы Stripe */
+async function browser(url: URL): Promise<Response> {
+  const done = url.searchParams.has("done");
+  const orderId = Number(url.searchParams.get(done ? "done" : "order"));
+  if (!Number.isInteger(orderId) || orderId <= 0 || !SECRET_KEY || url.searchParams.get("sig") !== await sign(orderId)) {
+    return say("Ссылка на оплату неверная. Откройте заказ в магазине, в «Мои заказы».", 404);
+  }
+  const order = await orderById(orderId);
+  if (!order) return say("Заказ не найден.", 404);
+  try {
+    if (done) {
+      if (order.status === "awaiting_payment" && order.pay_id) await applyPayment(await stripe(`/checkout/sessions/${order.pay_id}`));
+      return go(shopAfter(orderId));
+    }
+    if (order.status === "paid") return say("Этот заказ уже оплачен. Спасибо!");
+    if (order.status !== "awaiting_payment") return say("Этот заказ сейчас нельзя оплатить. Откройте его в магазине, в «Мои заказы».", 409);
+    if (!allowed(order.user_id)) return say("Онлайн-оплата пока в тестовом режиме. Оплатите заказ по реквизитам.", 403);
+    const result = await openSession(order);
+    return result.paid ? say("Этот заказ уже оплачен. Спасибо!") : go(result.url);
+  } catch {
+    return say("Не удалось открыть оплату. Попробуйте ещё раз через минуту.", 502);
+  }
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
+  if (req.method === "GET") return browser(new URL(req.url));
   if (req.method !== "POST") return answer({ error: "method" }, 405);
   const body: Json = await req.json().catch(() => ({}));
 
@@ -170,6 +238,13 @@ Deno.serve(async (req) => {
   if (!Number.isInteger(orderId) || orderId <= 0) return answer({ error: "bad_order" }, 400);
   if (!SECRET_KEY) return answer({ error: "not_configured" }, 503);
   try {
+    if (body.action === "link") {
+      if (!(await isStaff(req))) return answer({ error: "denied" }, 403);
+      const order = await orderById(orderId);
+      if (!order) return answer({ error: "not_found" }, 404);
+      if (!allowed(order.user_id)) return answer({ error: "test_only" }, 403);
+      return answer({ url: await payLink(orderId) });
+    }
     if (body.action === "create") return answer(await create(req, orderId));
     if (body.action === "check") return answer(await check(req, orderId));
     return answer({ error: "bad_action" }, 400);
