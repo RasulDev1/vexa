@@ -15,14 +15,12 @@ export const CHART_TYPES = {
     hint: "футболки, худи, свитшоты, куртки",
     columns: ["Размер", "Российский", "Обхват груди, см", "Обхват талии, см", "Рост, см"],
     rows: LETTERS.map((s, i) => [s, RU[i], range(86, i), range(74, i), HEIGHT[i]]),
-    measure: { column: 2, label: "Обхват груди, см", placeholder: "Например, 96" },
   },
   bottoms: {
     title: "Низ",
     hint: "штаны, брюки, шорты",
     columns: ["Размер", "Российский", "Обхват талии, см", "Обхват бёдер, см", "Рост, см"],
     rows: LETTERS.map((s, i) => [s, RU[i], range(74, i), range(92, i), HEIGHT[i]]),
-    measure: { column: 2, label: "Обхват талии, см", placeholder: "Например, 84" },
   },
   shoes: {
     title: "Обувь",
@@ -31,7 +29,6 @@ export const CHART_TYPES = {
     rows: [["38", "39", "6.5", "25"], ["39", "40", "7", "25.5"], ["40", "41", "8", "26"], ["41", "42", "8.5", "26.5"],
       ["42", "43", "9.5", "27.5"], ["43", "44", "10", "28"], ["44", "45", "11", "29"], ["45", "46", "12", "29.5"],
       ["46", "47", "12.5", "30.5"], ["47", "48", "13", "31"]],
-    measure: { column: 3, label: "Длина стопы, см", placeholder: "Например, 27" },
   },
 };
 
@@ -66,7 +63,7 @@ export function chartRows(product, type, custom = {}) {
   });
 }
 
-/** Таблица размеров товара: { type, columns, rows, measure } или null — у товара её нет */
+/** Таблица размеров товара: { type, columns, rows } или null — у товара её нет */
 export function sizeChartFor(product) {
   const saved = state.sizeCharts?.[product.id];
   const type = saved?.type || guessChartType(product);
@@ -74,26 +71,7 @@ export function sizeChartFor(product) {
   const rows = chartRows(product, type, saved?.rows);
   // ни одной заполненной ячейки — показывать нечего
   if (!rows.some((row) => row.slice(1).some(Boolean))) return null;
-  return { type, columns: CHART_TYPES[type].columns, rows, measure: CHART_TYPES[type].measure };
-}
-
-/** Число или диапазон «94–97» → [от, до] */
-function bounds(cell) {
-  const nums = String(cell).replace(",", ".").match(/\d+(\.\d+)?/g)?.map(Number);
-  return nums?.length ? [nums[0], nums[nums.length - 1]] : null;
-}
-
-/** Подходящий размер по мерке: первая строка, в которую мерка помещается (или следующая, если попала между строками) */
-export function suggestSize(chart, value) {
-  const v = Number(String(value).replace(",", "."));
-  if (!(v > 0)) return null;
-  const rows = chart.rows.map((row) => [row, bounds(row[chart.measure.column])]).filter(([, b]) => b);
-  if (!rows.length) return null;
-  const min = Math.min(...rows.map(([, b]) => b[0])), max = Math.max(...rows.map(([, b]) => b[1]));
-  if (v < min - 4) return { tooSmall: true };
-  if (v > max + (chart.type === "shoes" ? 0.5 : 4)) return { tooBig: true };
-  const fit = rows.find(([, [, to]]) => v <= to + (chart.type === "shoes" ? 0.2 : 0.5)) || rows[rows.length - 1];
-  return { size: fit[0][0] };
+  return { type, columns: CHART_TYPES[type].columns, rows };
 }
 
 /** Кнопка «Таблица размеров» и раскрывающаяся панель под выбором размера */
@@ -108,9 +86,6 @@ export function sizeChartHtml(product) {
           i === 0 ? `<th scope="row">${cell}</th>` : `<td>${escapeHtml(cell) || "—"}</td>`).join("")}</tr>`).join("")}</tbody>
       </table></div>
       <p class="sc-note">Нажмите на строку, чтобы выбрать размер. Если мерки между размерами — берите больший.</p>
-      <label class="sc-find"><span>Подобрать размер: ${chart.measure.label.toLowerCase()}</span>
-        <input id="sizeFinder" type="number" inputmode="decimal" min="0" step="0.5" placeholder="${chart.measure.placeholder}"></label>
-      <p class="sc-result" id="sizeFinderResult"></p>
       <details class="sc-how"><summary>Как снять мерки</summary><p>${HOW_TO_MEASURE[chart.type]}</p></details>
     </section>`;
 }
@@ -121,14 +96,4 @@ export function syncSizeChart(selectedSize, isUnavailable) {
     row.classList.toggle("on", row.dataset.chartSize === selectedSize);
     row.classList.toggle("off", isUnavailable(row.dataset.chartSize));
   });
-}
-
-/** Подсказка по мерке: { text, size } — size есть, если размер нашёлся */
-export function finderResult(product, value) {
-  const chart = sizeChartFor(product);
-  const fit = chart && suggestSize(chart, value);
-  if (!fit) return { text: "" };
-  if (fit.tooSmall) return { text: "Меньше самого маленького размера в таблице" };
-  if (fit.tooBig) return { text: "Больше самого большого размера в таблице" };
-  return { text: `Вам подойдёт размер ${fit.size}`, size: fit.size };
 }
