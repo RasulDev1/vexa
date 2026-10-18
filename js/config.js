@@ -30,3 +30,5 @@ export const SUPABASE_KEY = "sb_publishable_8xnrRsc0jbvrdWLQfVl9RA_ChDkxp-a";
 // С тестовым ключом Stripe деньги не списываются: платите тестовой картой 4242 4242 4242 4242.
 export const ONLINE_PAY = true;
 export const ONLINE_PAY_TESTERS = [7920676508];
+// true — пока в функции тестовый ключ Stripe: у кнопки оплаты подсказка с тестовой картой. С боевым ключом — false.
+export const ONLINE_PAY_TEST = true;

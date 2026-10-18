@@ -180,6 +180,9 @@ async function openSession(order: Json): Promise<Json> {
     "metadata[order_id]": String(orderId),
     client_reference_id: String(orderId),
     locale: "auto",
+    // тестовый ключ принимает только тестовые карты Stripe — подсказка прямо над кнопкой оплаты
+    ...(TEST_MODE ? { "custom_text[submit][message]":
+      "Тестовый магазин, деньги не списываются. Карта 4242 4242 4242 4242, срок любой в будущем, CVC любые 3 цифры." } : {}),
     success_url: await doneLink(orderId), // функция отметит оплату и вернёт покупателя в магазин
     cancel_url: RETURN_URL || await botChat() || SHOP_URL,
   }, crypto.randomUUID());
