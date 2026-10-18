@@ -95,6 +95,7 @@ export function applyCatalog(data) {
   state.hiddenProductIds = (data.hidden || []).map(Number);
   state.variants = data.variants || {};
   state.stock = data.stock || {};
+  state.sizeCharts = data.sizeCharts && typeof data.sizeCharts === "object" ? data.sizeCharts : {};
   state.receipts = Array.isArray(data.receipts) ? data.receipts : [];
   state.staff = Array.isArray(data.staff) ? data.staff : [];
   priceOverrides = data.prices && typeof data.prices === "object" ? data.prices : {};

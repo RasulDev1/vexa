@@ -24,6 +24,7 @@ export const state = {
   hiddenProductIds: [], // скрытые встроенные товары
   variants: {},         // id → { offColors, offSizes, offCombos }
   stock: {},            // id → { qty: { "цвет|размер": штук } }
+  sizeCharts: {},       // id → { type: "tops" | "bottoms" | "shoes" | "none", rows: { размер: [ячейки] } } — таблица размеров (size-chart.js)
   costs: null,          // id → закупочная цена (только сотрудникам; null — не настроено в базе)
   ratings: {},          // id товара → { avg, count }: оценки из отзывов (supabase-reviews.sql)
   myReviews: {},        // id товара → оценка, которую поставил этот покупатель

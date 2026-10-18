@@ -4,6 +4,7 @@ import { BASE_PRODUCTS, CATEGORIES } from "./data.js?v=20261001b";
 import { state, api, errorMessage, hasServer, useSupabase } from "./state.js?v=20261001b";
 import { CATEGORY_NAMES, colorName, swatchBackground, refreshCatalog, originalPrice } from "./catalog.js?v=20261001b";
 import { productImage } from "./photos.js?v=20261001b";
+import { CHART_TYPES, guessChartType, chartRows } from "./size-chart.js?v=20261001b";
 import { sheetBody, openSheet, closeSheet } from "./nav.js?v=20261001b";
 
 /** Кнопка удаления срабатывает со второго нажатия */
@@ -134,6 +135,7 @@ function openVariantEditor(id) {
     // цена до скидки и цена со скидкой (пусто — скидки нет)
     price: String(product.oldPrice || product.price), sale: product.oldPrice ? String(product.price) : "",
     cost: state.costs?.[id] ? String(state.costs[id]) : "", // закупочная цена (видят только сотрудники)
+    ...chartDraft(product),
   };
   renderVariantEditor();
   sheetBody.onclick = async (e) => {
@@ -150,7 +152,13 @@ function openVariantEditor(id) {
       if (d && !(base > 0)) { $("priceHint").textContent = "Сначала укажите цену"; return haptic("medium"); }
       // цену со скидкой округляем до десятков: 2990 −20% → 2390
       draft.sale = d ? String(Math.max(1, Math.min(base - 1, Math.round(base * (1 - d / 100) / 10) * 10))) : "";
-    } else if (t.id === "saveVariants") return saveVariants(t);
+    } else if (t.closest("[data-chart-type]")) {
+      const type = t.closest("[data-chart-type]").dataset.chartType;
+      const saved = state.sizeCharts[p.id];
+      draft.chartType = type;
+      draft.chartRows = CHART_TYPES[type] ? chartRows(p, type, saved?.type === type ? saved.rows : {}) : [];
+    } else if (t.id === "chartReset") draft.chartRows = chartRows(p, draft.chartType, {});
+    else if (t.id === "saveVariants") return saveVariants(t);
     else if (t.id === "unlistProduct") {
       if (!confirmTwice(t, "Точно снять с продажи?")) return;
       t.disabled = true;
@@ -170,6 +178,11 @@ function openVariantEditor(id) {
       $("pricePreview").innerHTML = pricePreview();
       if ($("costPreview")) $("costPreview").innerHTML = costPreview();
       $("priceHint").textContent = "";
+      return;
+    }
+    if (e.target.dataset.chartCell) {
+      const [r, c] = e.target.dataset.chartCell.split("|").map(Number);
+      draft.chartRows[r][c] = e.target.value.trim().slice(0, 20);
       return;
     }
     const cell = e.target.dataset.qty;
@@ -205,6 +218,43 @@ function variantCell(color, size) {
   }
   const off = wholeOff || d.offCombos.has(key(color, size));
   return `<button class="vcell${off ? " off" : ""}" data-off-combo="${key(color, size)}" ${wholeOff ? "disabled" : ""} aria-pressed="${!off}" aria-label="${label}">${off ? "" : "✓"}</button>`;
+}
+
+/* ---------- Таблица размеров (size-chart.js) ---------- */
+function chartDraft(product) {
+  const saved = state.sizeCharts[product.id];
+  const chartType = saved?.type || guessChartType(product);
+  return { chartType, chartRows: CHART_TYPES[chartType] ? chartRows(product, chartType, saved?.rows) : [] };
+}
+
+const sizeChartEditorHtml = () => {
+  if (!api.setSizeChart) return "";
+  const { product: p, chartType, chartRows: rows } = draft, t = CHART_TYPES[chartType];
+  return `<p class="label">Таблица размеров</p>
+    <p class="adm-sub">Покупатель увидит её в карточке товара под выбором размера, как на Wildberries и Ozon.
+      По умолчанию — «${CHART_TYPES[guessChartType(p)]?.title || "Без таблицы"}».</p>
+    <div class="opts" style="margin-top:8px">${[...Object.entries(CHART_TYPES), ["none", { title: "Без таблицы" }]].map(([id, x]) =>
+      `<button class="size" data-chart-type="${id}" aria-pressed="${id === chartType}" ${x.hint ? `title="${x.hint}"` : ""}>${x.title}</button>`).join("")}</div>
+    ${t ? `<div class="vwrap" style="margin-top:12px"><table class="sc-edit">
+      <thead><tr>${t.columns.map((c) => `<th>${c}</th>`).join("")}</tr></thead>
+      <tbody>${rows.map((row, r) => `<tr><th>${row[0]}</th>${row.slice(1).map((cell, i) =>
+        `<td><input data-chart-cell="${r}|${i + 1}" value="${escapeHtml(cell)}" maxlength="20" aria-label="${row[0]}: ${t.columns[i + 1]}"></td>`).join("")}</tr>`).join("")}</tbody>
+    </table></div>
+    <p class="adm-sub" style="margin-top:6px">Значения — российская размерная сетка. Поправьте сантиметры под свои лекала; пустые клетки покупатель увидит как «—».</p>
+    <button class="ghost" id="chartReset">Вернуть стандартные значения</button>` : ""}`;
+};
+
+/** Таблица, которую нужно сохранить: undefined — не менялась, null — по умолчанию, иначе { type, rows } */
+function sizeChartToSave() {
+  const { product: p, chartType, chartRows: rows } = draft;
+  let value = { type: chartType };
+  if (CHART_TYPES[chartType]) {
+    const standard = chartRows(p, chartType, {});
+    const changed = rows.filter((row, r) => row.some((cell, c) => cell !== standard[r][c]));
+    if (changed.length) value.rows = Object.fromEntries(changed.map((row) => [row[0], row]));
+  }
+  if (chartType === guessChartType(p) && !value.rows) value = null;
+  return JSON.stringify(value) === JSON.stringify(state.sizeCharts[p.id] || null) ? undefined : value;
 }
 
 /** Что увидит покупатель с введёнными ценами */
@@ -272,6 +322,7 @@ function renderVariantEditor() {
         ${p.sizes.map((s) => `<td>${variantCell(c, s)}</td>`).join("")}</tr>`).join("")}</tbody>
     </table></div>
     ${trackStock ? `<p class="vtotal">${warehouseMode() ? "В продаже" : "Всего на складе"}: <b id="stockTotal">${warehouseMode() ? saleTotal() : stockTotal()}</b> шт.</p>` : ""}
+    ${sizeChartEditorHtml()}
     <p class="hint" id="hint"></p>
     <button class="primary" id="saveVariants">Сохранить</button>
     ${warehouseMode() ? `<button class="ghost" id="unlistProduct">Снять с продажи</button>
@@ -306,6 +357,8 @@ async function saveVariants(button) {
       await api.productCostSet(p.id, cost);
       if (cost) state.costs[p.id] = cost; else delete state.costs[p.id];
     }
+    const chart = api.setSizeChart ? sizeChartToSave() : undefined;
+    if (chart !== undefined) await api.setSizeChart(p.id, chart);
     await api.setVariants(p.id, { offColors: [...draft.offColors], offSizes: [...draft.offSizes], offCombos });
     if (!warehouseMode()) await api.setStock(p.id, qty);
   }, "Изменения сохранены");
