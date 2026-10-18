@@ -28,4 +28,4 @@ export const SUPABASE_KEY = "sb_publishable_8xnrRsc0jbvrdWLQfVl9RA_ChDkxp-a";
 // Пока false, кнопку видят только Telegram ID из ONLINE_PAY_TESTERS — так оплату можно проверить на живом магазине.
 // С тестовым ключом Stripe деньги не списываются: платите тестовой картой 4242 4242 4242 4242.
 export const ONLINE_PAY = false;
-export const ONLINE_PAY_TESTERS = []; // например [123456789]
+export const ONLINE_PAY_TESTERS = [7920676508];
