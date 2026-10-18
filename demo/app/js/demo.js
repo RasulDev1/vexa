@@ -613,7 +613,7 @@ const RPC = {
     const o = findOrder(db, a.p_id);
     if (!o || o.status !== "awaiting_payment") return false;
     updateOrder(db, ctx, o, { status: "paid", payment_method: "card", paid_amount: Number(o.total) || 0, paid_at: nowIso(),
-      paid_by: "Онлайн-оплата (тест)", paid_by_id: null, online_pay_test: true });
+      paid_by: "Онлайн-оплата (тест)", paid_by_id: null, online_pay_test: true, online_pay_id: a.p_pay_id || null });
     return true;
   },
   payments_stats: (a, ctx, db) => {

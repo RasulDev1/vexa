@@ -11,6 +11,9 @@
 //   { action: "create", order_id } — от покупателя: создаёт страницу оплаты на сумму заказа из базы и возвращает ссылку;
 //   { action: "check", order_id }  — от покупателя, когда он вернулся со страницы оплаты: спрашивает Stripe и отмечает оплату;
 //   событие Stripe checkout.session.completed — перепроверяет оплату в Stripe и отмечает заказ оплаченным.
+//   { action: "demo_create", order_id, amount } — демо-сайт (/demo/): тестовая страница оплаты Stripe на сумму
+//                                    демо-заказа. Заказы демо живут в браузере, поэтому база не трогается. Только с тестовым ключом;
+//   { action: "demo_check", session_id } — демо-сайт после возврата со Stripe: прошла ли тестовая оплата.
 // Чей заказ, решает база: функция пересылает ей подпись Telegram покупателя (X-Telegram-Init-Data).
 // Событию Stripe функция на слово не верит — сама запрашивает страницу оплаты по её id.
 //
@@ -22,6 +25,7 @@
 //   SHOP_URL           — адрес магазина (необязательно)
 //   PAY_RETURN_URL     — куда вернуть покупателя после оплаты (необязательно; без неё — в чат бота магазина,
 //                        ссылку на бота функция узнаёт по TELEGRAM_BOT_TOKEN, а без токена — на сайт магазина)
+//   DEMO_PAY_URL       — страница демо-оплаты, куда Stripe вернёт посетителя демо (необязательно)
 //   TELEGRAM_BOT_TOKEN — уже есть у бота; с ним бот напишет покупателю «Оплата получена» (необязательно)
 // SUPABASE_URL, SUPABASE_ANON_KEY и SUPABASE_SERVICE_ROLE_KEY Supabase подставляет сам.
 // Развернуть без проверки JWT: supabase functions deploy online-pay --no-verify-jwt
@@ -31,6 +35,7 @@ const SECRET_KEY = Deno.env.get("STRIPE_SECRET_KEY") ?? "";
 const SHOP_URL = Deno.env.get("SHOP_URL") ?? "https://rasuldev1.github.io/vexa/";
 const RETURN_URL = Deno.env.get("PAY_RETURN_URL") ?? "";
 const BOT_TOKEN = Deno.env.get("TELEGRAM_BOT_TOKEN") ?? "";
+const DEMO_PAY_URL = Deno.env.get("DEMO_PAY_URL") ?? "https://rasuldev1.github.io/vexa/demo/app/pay.html";
 const TEST_MODE = /^(sk|rk)_test_/.test(SECRET_KEY);
 const TESTERS = (Deno.env.get("PAY_TESTERS") ?? "").split(/[\s,]+/).filter(Boolean);
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
@@ -181,8 +186,7 @@ async function openSession(order: Json): Promise<Json> {
     client_reference_id: String(orderId),
     locale: "auto",
     // тестовый ключ принимает только тестовые карты Stripe — подсказка прямо над кнопкой оплаты
-    ...(TEST_MODE ? { "custom_text[submit][message]":
-      "Тестовый магазин, деньги не списываются. Карта 4242 4242 4242 4242, срок любой в будущем, CVC любые 3 цифры." } : {}),
+    ...(TEST_MODE ? { "custom_text[submit][message]": TEST_CARD_HINT } : {}),
     success_url: await doneLink(orderId), // функция отметит оплату и вернёт покупателя в магазин
     cancel_url: RETURN_URL || await botChat() || SHOP_URL,
   }, crypto.randomUUID());
@@ -201,6 +205,41 @@ async function check(req: Request, orderId: number) {
   if (!order.pay_id) return { paid: false };
   const session = await stripe(`/checkout/sessions/${order.pay_id}`);
   return { paid: await applyPayment(session), status: session.status };
+}
+
+/* ---------- Демо-сайт: настоящая тестовая страница Stripe для заказа, который хранится в браузере ---------- */
+const TEST_CARD_HINT = "Тестовый магазин, деньги не списываются. Оплатить можно только тестовой картой 4242 4242 4242 4242: срок любой в будущем, CVC любые 3 цифры. Настоящие карты не принимаются.";
+
+/** Сумму присылает сам демо-сайт: заказа в базе нет. С боевым ключом не работает — деньги списались бы по-настоящему. */
+async function demoCreate(orderId: number, amount: number) {
+  if (!TEST_MODE) throw { code: "test_only" };
+  const kopecks = Math.round(amount * 100);
+  if (!(kopecks >= 5000 && kopecks <= 100_000_000)) throw { code: "bad_amount" }; // 50 ₽ … 1 000 000 ₽
+  const back = `${DEMO_PAY_URL}?order=${orderId}`;
+  const session = await stripe("/checkout/sessions", {
+    mode: "payment",
+    "line_items[0][quantity]": "1",
+    "line_items[0][price_data][currency]": "rub",
+    "line_items[0][price_data][unit_amount]": String(kopecks),
+    "line_items[0][price_data][product_data][name]": `Демо-заказ VEXA №${orderId}`,
+    "metadata[demo]": "1",
+    "metadata[demo_order]": String(orderId),
+    locale: "auto",
+    "custom_text[submit][message]": TEST_CARD_HINT,
+    success_url: `${back}&session={CHECKOUT_SESSION_ID}`, // Stripe сам подставит id страницы оплаты
+    cancel_url: back,
+  }, crypto.randomUUID());
+  if (!session.url) throw { code: "server" };
+  return { url: session.url };
+}
+
+/** Прошла ли тестовая оплата демо-заказа: отвечаем по самой странице оплаты Stripe */
+async function demoCheck(sessionId: string) {
+  if (!/^cs_test_[A-Za-z0-9]+$/.test(sessionId)) throw { code: "bad_session" };
+  const session = await stripe(`/checkout/sessions/${sessionId}`);
+  if (session?.metadata?.demo !== "1") throw { code: "not_found" };
+  return { paid: session.payment_status === "paid", order_id: Number(session.metadata.demo_order),
+    amount: Number(session.amount_total) / 100, session_id: session.id };
 }
 
 /** Ответ для браузера покупателя: переход или короткий текст (HTML Supabase показывает как текст) */
@@ -250,9 +289,14 @@ Deno.serve(async (req) => {
   }
 
   const orderId = Number(body?.order_id);
-  if (!Number.isInteger(orderId) || orderId <= 0) return answer({ error: "bad_order" }, 400);
   if (!SECRET_KEY) return answer({ error: "not_configured" }, 503);
+  if (body?.action === "demo_check") {
+    try { return answer(await demoCheck(String(body.session_id ?? ""))); }
+    catch (e) { return answer({ error: (e as Json)?.code ?? "provider" }, (e as Json)?.code ? 400 : 502); }
+  }
+  if (!Number.isInteger(orderId) || orderId <= 0) return answer({ error: "bad_order" }, 400);
   try {
+    if (body.action === "demo_create") return answer(await demoCreate(orderId, Number(body.amount)));
     if (body.action === "link") {
       if (!(await isStaff(req))) return answer({ error: "denied" }, 403);
       const order = await orderById(orderId);
