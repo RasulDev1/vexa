@@ -107,6 +107,37 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .size:disabled { opacity: .35; text-decoration: line-through; cursor: not-allowed; }
 .swatch { width: 36px; height: 36px; border-radius: 50%; border: 3px solid var(--surface); box-shadow: 0 0 0 1.5px var(--line); }
 .swatch[aria-pressed="true"] { box-shadow: 0 0 0 2.5px var(--ink); }
+/* Таблица размеров в карточке товара */
+.sc-open { margin-top: 10px; border: 0; background: none; padding: 4px 0; color: var(--ink); font-weight: 700; font-size: 13.5px; text-decoration: underline; text-decoration-color: var(--accent); text-decoration-thickness: 2px; text-underline-offset: 4px; }
+.sc-open::after { content: " ›"; display: inline-block; transition: transform .2s var(--ease); }
+.sc-open[aria-expanded="true"]::after { transform: rotate(90deg); }
+.sc { margin-top: 10px; padding: 12px 10px; border-radius: 14px; background: var(--bg); border: 1.5px solid var(--line); }
+.sc.swap { animation: cardIn .28s var(--ease) both; }
+.sc-wrap { overflow-x: auto; margin: 0 -4px; padding: 0 4px; }
+.sc-tab { width: 100%; border-collapse: collapse; font-size: 13px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.sc-tab th, .sc-tab td { padding: 8px 4px; text-align: center; border-bottom: 1px solid var(--line); }
+.sc-tab thead th { font-size: 11.5px; font-weight: 600; color: var(--muted); white-space: normal; vertical-align: bottom; }
+.sc-tab tbody th { font-weight: 700; }
+.sc-tab tbody tr { cursor: pointer; }
+.sc-tab tbody tr:last-child > * { border-bottom: 0; }
+.sc-tab tr.on > * { background: color-mix(in srgb, var(--accent) 28%, transparent); }
+.sc-tab tr.off { opacity: .4; cursor: default; }
+.sc-note { color: var(--muted); font-size: 12.5px; margin: 8px 0 0; }
+.sc-find { display: block; margin-top: 12px; }
+.sc-find span { display: block; font-weight: 600; font-size: 13px; margin-bottom: 6px; }
+.sc-find input { width: 100%; padding: 10px 12px; border-radius: 10px; border: 1.5px solid var(--line); background: var(--surface); color: var(--ink); font: inherit; }
+.sc-result { margin: 8px 0 0; font-weight: 600; font-size: 13.5px; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.sc-result:empty { display: none; }
+.sc-pick { border: 0; border-radius: 999px; padding: 6px 12px; background: var(--ink); color: var(--surface); font-weight: 700; font-size: 13px; }
+.sc-how { margin-top: 10px; font-size: 13px; }
+.sc-how summary { cursor: pointer; font-weight: 600; }
+.sc-how p { color: var(--muted); margin: 6px 0 0; }
+/* Таблица размеров в правке товара (CRM) */
+.sc-edit { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.sc-edit th { font-weight: 600; color: var(--muted); font-size: 11px; padding: 0 3px 6px; text-align: left; vertical-align: bottom; }
+.sc-edit td { padding: 3px; }
+.sc-edit tbody th { color: var(--ink); font-size: 13px; font-weight: 700; padding-right: 6px; }
+.sc-edit input { width: 100%; min-width: 64px; padding: 8px; border-radius: 8px; border: 1.5px solid var(--line); background: var(--bg); color: var(--ink); font: inherit; }
 .left { margin: 10px 0 0; font-weight: 600; font-size: 13px; color: #C2410C; }
 .left:empty { display: none; }
 .hint { color: var(--danger); font-size: 13px; margin: 8px 0 0; min-height: 18px; }

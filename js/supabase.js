@@ -324,7 +324,7 @@ export const supabaseApi = {
 
 /* ---------- Каталог в базе (supabase-catalog.sql): без ключей GitHub, изменения видны сразу ---------- */
 const PHOTO_BUCKET = "products";
-const EMPTY_CATALOG = { products: [], hidden: [], variants: {}, stock: {}, staff: [], prices: {}, order: [] };
+const EMPTY_CATALOG = { products: [], hidden: [], variants: {}, stock: {}, staff: [], prices: {}, order: [], sizeCharts: {} };
 let catalogInDb = false; // каталог уже хранится в базе (иначе — первая загрузка из catalog/catalog.json)
 
 /** Опубликованный в репозитории каталог — им база заполняется при первом сохранении */
@@ -419,6 +419,11 @@ export const supabaseCatalogApi = {
     c.prices ||= {};
     if (value) c.prices[id] = { price: value.price, old: value.old || 0 }; else delete c.prices[id];
   }),
+  /** Таблица размеров товара: { type, rows }; null — вернуть таблицу по умолчанию */
+  setSizeChart: (id, chart) => updateCatalog((c) => {
+    c.sizeCharts ||= {};
+    if (chart) c.sizeCharts[id] = chart; else delete c.sizeCharts[id];
+  }),
   setStock: (id, qty) => updateCatalog((c) => { if (qty) c.stock[id] = { qty }; else delete c.stock[id]; }),
   /** Порядок карточек в каталоге: список id товаров */
   setOrder: (order) => updateCatalog((c) => { c.order = order; }),
@@ -472,6 +477,7 @@ export const supabaseCatalogApi = {
       delete c.variants[id];
       delete c.stock[id];
       if (c.prices) delete c.prices[id];
+      if (c.sizeCharts) delete c.sizeCharts[id];
       if (c.order) c.order = c.order.filter((x) => x !== id);
     });
     for (const color of removed?.colors || []) {
