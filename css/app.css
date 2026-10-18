@@ -246,6 +246,10 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .steps { margin: 0 0 12px; padding-left: 20px; font-size: 14px; }
 .steps li { margin: 4px 0; }
 
+/* ---------- Дисклеймер внизу страницы ---------- */
+.disclaimer { margin: 36px auto 0; max-width: 340px; text-align: center; color: var(--muted); opacity: .8;
+  font: 700 9px/1.6 var(--display); letter-spacing: .08em; text-transform: uppercase; }
+
 /* ---------- Уведомление ---------- */
 .toast { position: fixed; left: 50%; top: calc(14px + env(safe-area-inset-top, 0px)); transform: translate(-50%, -80px); background: var(--ink); color: var(--bg); padding: 10px 16px; border-radius: 12px; font-weight: 600; font-size: 14px; transition: transform .25s; z-index: 50; }
 .toast.show { transform: translate(-50%, 0); }
