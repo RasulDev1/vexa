@@ -249,7 +249,7 @@ const isPaymentLink = (text) => /^https:\/\/\S+$/.test(text.trim());
 /* ---------- Онлайн-оплата картой (Stripe) ---------- */
 // Пока ONLINE_PAY выключена, онлайн-оплату видят только проверяющие из ONLINE_PAY_TESTERS (config.js)
 // Тестовый ключ Stripe принимает только тестовые карты — подсказываем номер покупателю
-const ONLINE_PAY_TEST_HINT = ONLINE_PAY_TEST ? "<br>Это тестовая оплата, деньги не списываются: карта <b>4242 4242 4242 4242</b>, срок любой в будущем, CVC любые 3 цифры." : "";
+const ONLINE_PAY_TEST_HINT = ONLINE_PAY_TEST ? "<br>Это тестовая оплата, деньги не списываются. Оплатить можно только картой <b>4242 4242 4242 4242</b>: срок любой в будущем, CVC любые 3 цифры." : "";
 export const onlinePayFor = (userId) => ONLINE_PAY || ONLINE_PAY_TESTERS.map(String).includes(String(userId));
 const onlinePayOn = () => Boolean(api.onlinePay) && onlinePayFor(telegramUser?.id);
 /** Ссылка на оплату картой, которую CRM подставила в реквизиты (функция online-pay) */

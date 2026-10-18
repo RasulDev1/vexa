@@ -248,8 +248,8 @@ const isPaymentLink = (text) => /^https:\/\/\S+$/.test(text.trim());
 
 /* ---------- Онлайн-оплата картой (Stripe) ---------- */
 // Пока ONLINE_PAY выключена, онлайн-оплату видят только проверяющие из ONLINE_PAY_TESTERS (config.js)
-// Демо: вместо Stripe — страница демо-оплаты pay.html, карта не нужна
-const ONLINE_PAY_TEST_HINT = ONLINE_PAY_TEST ? "<br>Это демо: оплата имитируется, карту вводить не нужно." : "";
+// Демо: сначала страница демо-оплаты pay.html, с неё — тестовая страница Stripe
+const ONLINE_PAY_TEST_HINT = ONLINE_PAY_TEST ? "<br>Это тестовая оплата, деньги не списываются. Оплатить можно только картой <b>4242 4242 4242 4242</b>: срок любой в будущем, CVC любые 3 цифры." : "";
 export const onlinePayFor = (userId) => ONLINE_PAY || ONLINE_PAY_TESTERS.map(String).includes(String(userId));
 const onlinePayOn = () => Boolean(api.onlinePay) && onlinePayFor(telegramUser?.id);
 /** Ссылка на оплату картой, которую CRM подставила в реквизиты (функция online-pay) */
@@ -401,12 +401,12 @@ function myOrderHtml(o) {
     ${status === "accepted" && o.note && (details || link || offline) ? `<p class="ord-note">${escapeHtml(o.note)}</p>` : ""}
     ${status === "accepted" && offline ? `<p class="ord-note">${offline}.</p>` : ""}
     ${status === "accepted" && link && !offline ? `<a class="primary pay" href="${escapeHtml(link)}" data-pay data-pay-num="${o.num}">Оплатить картой онлайн · ${total}</a>
-      <p class="adm-sub" style="margin-top:6px">Откроется страница демо-оплаты. Статус заказа обновится сам.${ONLINE_PAY_TEST_HINT}</p>` : ""}
+      <p class="adm-sub" style="margin-top:6px">Оплата на тестовой странице Stripe. Статус заказа обновится сам.${ONLINE_PAY_TEST_HINT}</p>` : ""}
     ${status === "accepted" && details && !offline ? `<div class="req"><p class="req-h">Реквизиты для оплаты · ${total}</p><p class="req-t">${escapeHtml(details)}</p>
       <button class="ghost copy" data-copy="${o.num}">Скопировать реквизиты</button></div>
       ${isPaymentLink(details) ? `<a class="primary pay" href="${escapeHtml(details)}" data-pay>Перейти к оплате</a>` : ""}` : ""}
     ${status === "accepted" && !link && !offline && onlinePayOn() ? `<button class="primary pay" data-pay-online="${o.num}">Оплатить картой онлайн</button>
-      <p class="adm-sub" style="margin-top:6px">Откроется страница демо-оплаты. Статус заказа обновится сам.${ONLINE_PAY_TEST_HINT}</p>` : ""}
+      <p class="adm-sub" style="margin-top:6px">Оплата на тестовой странице Stripe. Статус заказа обновится сам.${ONLINE_PAY_TEST_HINT}</p>` : ""}
     ${status === "rejected" && o.message ? `<p class="ord-note">${escapeHtml(o.message)}</p>` : ""}
     ${returnInfoHtml(o)}
     ${useSupabase && status === "accepted" && details && !offline ? `<p class="adm-sub" style="margin-top:10px">${link ? "Платите по реквизитам? Отправьте чек менеджеру в чат." : "Оплатили? Отправьте чек менеджеру в чат."}</p>` : ""}
