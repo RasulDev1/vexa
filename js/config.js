@@ -24,8 +24,9 @@ export const SUPABASE_URL = "https://ztcltngfpnhhuzyyqnfw.supabase.co";
 export const SUPABASE_KEY = "sb_publishable_8xnrRsc0jbvrdWLQfVl9RA_ChDkxp-a";
 
 // Онлайн-оплата картой через Stripe (supabase-online-pay.sql и функция online-pay в Supabase).
-// true — у принятого заказа в «Мои заказы» у всех покупателей появляется кнопка «Оплатить картой онлайн».
+// true — у принятого заказа в «Мои заказы» у всех покупателей появляется кнопка «Оплатить картой онлайн»,
+// а CRM при «Принять» подставляет ссылку на оплату. Кто может заплатить тестовым ключом, решает секрет PAY_TESTERS.
 // Пока false, кнопку видят только Telegram ID из ONLINE_PAY_TESTERS — так оплату можно проверить на живом магазине.
 // С тестовым ключом Stripe деньги не списываются: платите тестовой картой 4242 4242 4242 4242.
-export const ONLINE_PAY = false;
+export const ONLINE_PAY = true;
 export const ONLINE_PAY_TESTERS = [7920676508];
