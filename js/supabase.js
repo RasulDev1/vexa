@@ -320,15 +320,16 @@ export const supabaseApi = {
         let finished = false;
         const checkout = await init({
           clientSecret: r.client_secret,
-          onComplete: async () => { // форма сообщила об оплате: просим функцию проверить её в Stripe и создать заказ
+          onComplete: async () => { // форма сообщила об оплате
             if (finished) return;
             finished = true;
-            for (let i = 0; i < 10; i++) {
+            onPaid(null); // покупатель сразу видит «Спасибо за заказ», форма исчезает
+            // а функция тем временем проверяет оплату в Stripe и создаёт заказ; номер заказа дошлём вторым вызовом
+            for (let i = 0; i < 15; i++) {
               const check = await holdFunction("hold_check", holdId).catch(() => null);
               if (check?.paid) return onPaid(check.order_id);
               await new Promise((resolve) => setTimeout(resolve, 1000));
             }
-            onPaid(null); // заказ создастся сам, как только Stripe сообщит об оплате
           },
         });
         checkout.mount(element);
