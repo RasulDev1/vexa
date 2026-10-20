@@ -301,6 +301,12 @@ export const supabaseApi = {
   },
   /** Покупатель закрыл окно оплаты с отменой: резерв снимается */
   holdCancel: (holdId) => db().rpc("order_hold_cancel", { p_id: holdId }).then(() => {}, () => {}),
+  /** Прогрев, пока покупатель заполняет доставку: вход в базу, библиотека Stripe и функция оплаты (она засыпает) */
+  warmPayment() {
+    supabaseLogin().catch(() => {});
+    loadStripeJs().catch(() => {});
+    loadLibrary().then(() => db().functions.invoke("online-pay", { body: { action: "ping" } })).catch(() => {});
+  },
   /** Подготовка формы оплаты в окне магазина. { paid, orderId } — уже оплачено; иначе { mount(element, onPaid, { total }) },
    *  mount рисует форму Stripe и возвращает функцию «убрать форму». Ошибки: not_configured (нет ключа Stripe), expired, provider, network */
   async preparePayment(holdId) {

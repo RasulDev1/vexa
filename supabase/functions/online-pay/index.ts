@@ -152,7 +152,9 @@ async function customerHold(req: Request, holdId: number): Promise<Json> {
 
 /** Форма оплаты Stripe для окна магазина: открытую используем снова, иначе создаём новую */
 async function embedded(req: Request, holdId: number) {
+  const t0 = Date.now();
   const hold = await customerHold(req, holdId);
+  const t1 = Date.now();
   if (hold.status === "paid") return { paid: true, order_id: hold.order_id };
   if (hold.status !== "pending") throw { code: "expired" };
   if (!PUBLISHABLE_KEY) throw { code: "not_configured" };
@@ -177,7 +179,9 @@ async function embedded(req: Request, holdId: number) {
     ...(TEST_MODE ? { "custom_text[submit][message]": TEST_CARD_HINT } : {}),
   }, crypto.randomUUID(), EMBEDDED_VERSION);
   if (!session.client_secret) throw { code: "server" };
+  const t2 = Date.now();
   await admin.rpc("hold_pay_start", { p_id: holdId, p_pay_id: session.id });
+  console.log(`Форма оплаты: проверка резерва ${t1 - t0} мс, Stripe ${t2 - t1} мс, запись ${Date.now() - t2} мс`);
   return { client_secret: session.client_secret, publishable_key: PUBLISHABLE_KEY };
 }
 
@@ -372,6 +376,7 @@ Deno.serve(async (req) => {
     }
   }
 
+  if (body?.action === "ping") return answer({ ok: true }); // «будильник» и прогрев: функция не засыпает, пока покупатель оформляет заказ
   const orderId = Number(body?.order_id);
   if (!SECRET_KEY) return answer({ error: "not_configured" }, 503);
   if (body?.action === "embedded" || body?.action === "hold_check") {

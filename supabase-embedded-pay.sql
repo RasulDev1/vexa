@@ -158,6 +158,25 @@ do $$ begin
 exception when others then raise notice 'pg_cron недоступен: резервы снимутся при следующем резерве или оплате (%)', sqlerrm;
 end $$;
 
+-- ---------- «Будильник» функции оплаты: раз в минуту, чтобы форма открывалась без «холодного старта» ----------
+create or replace function public.online_pay_keep_warm()
+returns void language plpgsql security definer set search_path = '' as $$
+begin
+  perform net.http_post(
+    url := 'https://ztcltngfpnhhuzyyqnfw.supabase.co/functions/v1/online-pay',
+    body := '{"action":"ping"}'::jsonb,
+    headers := jsonb_build_object('Content-Type', 'application/json'),
+    timeout_milliseconds := 10000);
+exception when others then null;
+end $$;
+revoke execute on function public.online_pay_keep_warm() from public, anon, authenticated;
+do $$ begin
+  create extension if not exists pg_cron;
+  perform cron.unschedule(jobid) from cron.job where jobname = 'online-pay-keep-warm';
+  perform cron.schedule('online-pay-keep-warm', '* * * * *', 'select public.online_pay_keep_warm()');
+exception when others then raise notice 'pg_cron недоступен (%)', sqlerrm;
+end $$;
+
 notify pgrst, 'reload schema';
 
 -- ---------- Проверка: всё должно быть «true» ----------
