@@ -117,6 +117,22 @@ async function setMenu(accessToken: string) {
     ] }] }),
   }).then((r) => r.json()).catch(() => null);
   if (!result?.result) console.error("Instagram persistent menu:", result?.error?.message ?? result);
+  else console.log("Меню Instagram (☰) установлено");
+}
+
+/** Проверка меню: читаем его у Instagram и, если его нет, ставим заново. Раз за запуск функции, пишем итог в логи */
+let menuChecked = false;
+async function checkMenu() {
+  if (menuChecked) return;
+  menuChecked = true;
+  const accessToken = await token();
+  if (!accessToken) return;
+  const result = await fetch(`${GRAPH}/me/messenger_profile?platform=instagram&fields=persistent_menu`,
+    { headers: { Authorization: `Bearer ${accessToken}` } }).then((r) => r.json()).catch(() => null);
+  const items = result?.data?.[0]?.persistent_menu?.[0]?.call_to_actions;
+  if (items?.length) { console.log(`Меню Instagram (☰) на месте: ${items.map((i: Json) => i.title).join(", ")}`); return; }
+  console.error("Меню Instagram (☰) не найдено у Instagram, ставлю заново:", result?.error?.message ?? "пусто");
+  await setMenu(accessToken);
 }
 
 async function ig(body: Json): Promise<Json> {
@@ -487,6 +503,7 @@ async function fromDatabase(request: Request, secret: string) {
   if (!data?.hook_secret || data.hook_secret !== secret) return new Response("forbidden", { status: 403 });
   const body = await request.json().catch(() => null);
   token().catch(() => {}); // «будильник» заодно прогревает токен
+  checkMenu().catch((e) => console.error("Проверка меню:", e));
   // сообщения отправляем уже после ответа базе — она не ждёт дольше нескольких секунд
   const work = (body?.message ? managerMessage(Number(body.message))
     : body?.order ? orderStatus(Number(body.order), String(body.from ?? "")) : Promise.resolve())
