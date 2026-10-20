@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VEXA — подключение Instagram</title>
+<!-- Сюда функция instagram-bot отправляет после «Разрешить»: текст итога приходит в ?msg= -->
+<style>
+  :root { color-scheme: light dark; }
+  body { margin: 0 auto; max-width: 560px; padding: 32px 16px; font: 18px/1.5 system-ui, sans-serif; background: Canvas; color: CanvasText; }
+</style>
+</head>
+<body>
+<p id="msg">Откройте ссылку подключения из настроек приложения Meta.</p>
+<script>
+  const msg = new URLSearchParams(location.search).get("msg");
+  if (msg) document.getElementById("msg").textContent = msg;
+</script>
+</body>
+</html>
