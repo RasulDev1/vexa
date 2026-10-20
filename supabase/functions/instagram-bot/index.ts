@@ -120,12 +120,16 @@ async function setMenu(accessToken: string) {
 }
 
 async function ig(body: Json): Promise<Json> {
+  const t0 = Date.now();
+  const bearer = `Bearer ${await token()}`;
+  const t1 = Date.now();
   const response = await fetch(`${GRAPH}/me/messages`, {
     method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${await token()}` },
+    headers: { "Content-Type": "application/json", Authorization: bearer },
     body: JSON.stringify(body),
   });
   const result = await response.json().catch(() => ({}));
+  console.log(`  шаг: Instagram ${body.sender_action ? "«печатает»" : "сообщение"} ${Date.now() - t1} мс (токен ${t1 - t0} мс)`);
   // Ошибки Instagram — в логи функции. Код 10 / 2534022 — прошло больше 24 часов с последнего сообщения покупателя:
   // Instagram разрешает писать первым только в течение суток после его сообщения.
   if (!response.ok || result?.error) console.error("Instagram send:", result?.error?.code, result?.error?.error_subcode, result?.error?.message);
@@ -197,6 +201,7 @@ async function igsidOf(userId: number): Promise<string | null> {
 const loginKeys = new Map<number, string>();
 async function shopLink(userId: number, tab = "") {
   let token = loginKeys.get(userId);
+  const tl = Date.now();
   if (!token) {
     const { data: last } = await db.from("ig_logins").select("token").eq("user_id", userId)
       .order("created_at", { ascending: false }).limit(1).maybeSingle();
@@ -208,6 +213,7 @@ async function shopLink(userId: number, tab = "") {
     if (error) throw error;
   }
   loginKeys.set(userId, token);
+  if (Date.now() - tl > 5) console.log(`  шаг: ссылка на магазин ${Date.now() - tl} мс`);
   const url = new URL(SHOP_URL);
   url.searchParams.set("ig", token);
   if (tab) url.searchParams.set("tab", tab);
@@ -388,7 +394,9 @@ async function handle(igsid: string, m: Json) {
   const text: string = String(m.text ?? "").trim();
   // команда боту — сразу «печатает…»; обычное сообщение может читать менеджер, там бот молчит
   if (payload || ORDER_WORDS.test(text) || SHOP_WORDS.test(text)) typing(igsid);
+  const tc = Date.now();
   const me = await customer(igsid);
+  console.log(`  шаг: покупатель ${Date.now() - tc} мс`);
 
   if (payload === "ORDERS" || ORDER_WORDS.test(text)) return sendOrders(igsid, me.id);
   const orderId = Number(/^ORDER:(\d+)$/.exec(payload)?.[1]);
