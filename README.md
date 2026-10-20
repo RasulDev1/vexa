@@ -240,16 +240,22 @@ Permissions → Repository permissions → **Contents: Read and write** → **Ge
    включите **«Разрешить доступ к сообщениям»**.
 2. [developers.facebook.com](https://developers.facebook.com/apps) → **Create app** → сценарий
    **«Manage messaging & content on Instagram»**, тип **Business**.
-3. В приложении: **Instagram → API setup with Instagram login**:
-   - **Generate access tokens → Add account**: войдите в аккаунт магазина и скопируйте токен (`IG_ACCESS_TOKEN`);
-   - там же **Instagram app secret** (`IG_APP_SECRET`).
+3. В приложении: **Instagram → API setup with Instagram login**: скопируйте **Instagram app ID** (`IG_APP_ID`)
+   и **Instagram app secret** (`IG_APP_SECRET`). Аккаунт магазина добавьте в **App roles → Roles** как
+   **Instagram Tester** и примите приглашение на instagram.com/accounts/manage_access.
 4. Supabase → SQL Editor: запустите заново `supabase-bot.sql`, затем `supabase-instagram.sql`. Если ID проекта Supabase
    не `ztcltngfpnhhuzyyqnfw`, поправьте адрес в `ig_function_url()`.
 5. Supabase → Edge Functions: создайте функцию `instagram-bot` с кодом из `supabase/functions/instagram-bot/index.ts`
    и **выключите Verify JWT** (или `supabase functions deploy instagram-bot --no-verify-jwt`).
    Если подключена онлайн-оплата, заново разверните и `online-pay`.
-6. Edge Functions → Secrets: `IG_ACCESS_TOKEN`, `IG_APP_SECRET` и `IG_VERIFY_TOKEN` — любая длинная строка
+6. Edge Functions → Secrets: `IG_APP_ID`, `IG_APP_SECRET` и `IG_VERIFY_TOKEN` — любая длинная строка
    из латинских букв и цифр.
+6а. Подключите аккаунт магазина — без всплывающего окна, обычной ссылкой:
+   **API setup with Instagram login → Set up Instagram business login → Business login settings**:
+   OAuth redirect URI — `https://<проект>.supabase.co/functions/v1/instagram-bot` → Save. Скопируйте **Embed URL**,
+   допишите в конец `&state=` и ваш `IG_VERIFY_TOKEN`, откройте в браузере, где вы вошли в аккаунт магазина,
+   и нажмите «Разрешить». Функция покажет «Готово», сохранит токен и будет сама продлевать его.
+   (Можно и по-старому: **Generate token** и секрет `IG_ACCESS_TOKEN` — тогда токен нужно обновлять раз в 60 дней.)
 7. В приложении Meta: **Instagram → API setup with Instagram login → Configure webhooks**:
    Callback URL — `https://<проект>.supabase.co/functions/v1/instagram-bot`, Verify token — тот же `IG_VERIFY_TOKEN`
    → **Verify and save**. Подпишитесь на поля **messages** и **messaging_postbacks**.
@@ -261,7 +267,7 @@ Permissions → Repository permissions → **Contents: Read and write** → **Ge
 Если сообщения от покупателей не доходят до бота, а от вашего тестового аккаунта доходят, Meta требует для приложения
 расширенный доступ — его выдают после проверки приложения и компании.
 
-Токен из шага 3 действует 60 дней. Чтобы продлить, сгенерируйте новый там же и обновите секрет `IG_ACCESS_TOKEN`.
+Токен, полученный по ссылке, функция продлевает сама. Токен из секрета `IG_ACCESS_TOKEN` действует 60 дней: потом сгенерируйте новый.
 
 ## Как добавить или убрать администратора
 

@@ -40,6 +40,9 @@ create table if not exists public.ig_settings (
   hook_secret text not null default md5(gen_random_uuid()::text) || md5(gen_random_uuid()::text)
 );
 insert into public.ig_settings default values on conflict (id) do nothing;
+-- Токен аккаунта Instagram, если его подключили по ссылке (функция получает и продлевает его сама)
+alter table public.ig_settings add column if not exists access_token     text;
+alter table public.ig_settings add column if not exists token_expires_at timestamptz;
 
 -- Таблицы читает и меняет только функция instagram-bot (ключ service_role)
 revoke all on public.ig_users, public.ig_logins, public.ig_settings from anon, authenticated;
