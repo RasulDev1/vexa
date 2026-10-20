@@ -40,6 +40,16 @@
   });
   narrow.addEventListener("change", () => setView(view, false));
 
+  // «Инструкция»: на узком экране видео переключаются вкладками, на широком все три рядом
+  const gRow = $("guideRow");
+  guide.querySelector(".guide-tabs").addEventListener("click", (e) => {
+    const b = e.target.closest("button[data-g]");
+    if (!b) return;
+    gRow.dataset.active = b.dataset.g;
+    for (const t of guide.querySelectorAll(".guide-tabs button")) t.setAttribute("aria-pressed", String(t === b));
+    for (const v of guide.querySelectorAll("video")) v.pause();
+  });
+
   function fit() {
     if (narrow.matches) {
       phone.style.removeProperty("--s");

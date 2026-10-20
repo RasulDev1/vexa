@@ -243,6 +243,8 @@ const day = (iso: string) => new Date(iso).toLocaleDateString("ru-RU", { day: "n
 const shortDay = (iso: string) => new Date(iso).toLocaleDateString("ru-RU", { day: "numeric", month: "short", timeZone: "Europe/Moscow" }).replace(".", "");
 const itemsOf = (o: Json): Json[] => (Array.isArray(o.items) ? o.items : []);
 
+/** Ссылка на оплату картой онлайн (функция online-pay), которую CRM кладёт в реквизиты */
+const ONLINE_PAY = /\/functions\/v1\/online-pay\?order=\d+&sig=[0-9a-f]+/;
 const ACTIVE = ["new", "awaiting_payment", "paid"];
 const OPEN = ["awaiting_payment", "paid"]; // по этим заказам можно писать менеджеру
 
@@ -334,9 +336,14 @@ async function chooseOrder(to: string, userId: number, orderId: number, accepted
   const lines = items.map((l) => `• ${l.name} — ${String(l.colorName ?? "").toLowerCase()}, размер ${l.size}${Number(l.qty) > 1 ? `, ${l.qty} шт.` : ""}`);
   let text = `${accepted ? "✅ Заказ принят! " : "🛍 "}Ваш заказ от ${day(o.created_at)}\n\n${lines.join("\n")}\n\nСумма: ${rub(o.total)}\nСтатус: ${STATUS[o.status] ?? o.status}`;
   if (o.status === "awaiting_payment" && o.payment_details) {
-    text += `\n\n💳 Реквизиты для оплаты:\n${o.payment_details}`;
-    if (o.manager_note) text += `\n\n${o.manager_note}`;
-    text += "\n\nПосле оплаты пришлите сюда, пожалуйста, чек — фото или скриншот.";
+    if (ONLINE_PAY.test(o.payment_details)) {
+      // оплата картой онлайн: заказ отмечается оплаченным сам, чек не нужен
+      text += `\n\n💳 Оплатить картой онлайн:\n${o.payment_details}\n\nКак только оплата пройдёт, статус заказа обновится сам, чек присылать не нужно.`;
+    } else {
+      text += `\n\n💳 Реквизиты для оплаты:\n${o.payment_details}`;
+      if (o.manager_note) text += `\n\n${o.manager_note}`;
+      text += "\n\nПосле оплаты пришлите сюда, пожалуйста, чек — фото или скриншот.";
+    }
   }
   if (OPEN.includes(o.status)) {
     text += "\n\n✍️ Есть вопрос? Просто напишите сюда — менеджер ответит в этом чате. Закончили — нажмите «Закрыть чат».";
