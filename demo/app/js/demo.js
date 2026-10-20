@@ -340,7 +340,7 @@ function updateOrder(db, ctx, row, patch) {
   return row;
 }
 
-function insertOrder(db, ctx, values) {
+function insertOrder(db, ctx, values, auto = true) {
   const items = Array.isArray(values.items) ? values.items : [];
   const row = {
     id: ++db.seq.orders, created_at: nowIso(), user_id: ctx.me, username: null, status: "new", items,
@@ -357,7 +357,7 @@ function insertOrder(db, ctx, values) {
   db.orders.push(row);
   addEvent(db, row.id, ctx.staffSide ? ctx.actor : "Покупатель", "Заказ оформлен на " + rub(row.total));
   notify([STAFF_TOPIC, userTopic(row.user_id)], { id: row.id, op: "insert" });
-  if (!ctx.staffSide) autoAccept(db, ctx, row);
+  if (auto && !ctx.staffSide) autoAccept(db, ctx, row);
   return row;
 }
 
@@ -571,6 +571,45 @@ const RPC = {
     if (!o || o.status !== "awaiting_payment") fail("staff:conflict", "40001");
     return clone(updateOrder(db, ctx, o, { status: "paid", payment_method: a.p_method, paid_amount: Math.round(amount * 100) / 100,
       paid_at: nowIso(), paid_by: me.full_name, paid_by_id: me.id }));
+  },
+  /* --- оплата в окне магазина (supabase-embedded-pay.sql): заказа нет, пока не оплачено --- */
+  order_hold: (a, ctx, db) => {
+    const items = a.p_items, total = Number(a.p_total), way = String(a.p_way || "");
+    if (!Array.isArray(items) || !items.length || items.length > 50 || !(total >= 50) || total > 1e7 || /оплата наличными|оплата при получении/.test(way)) fail("hold:bad_data", "22023");
+    const held = (db.held_orders ||= []);
+    const now = Date.now();
+    for (const h of held) { // просроченные и прежние резервы этого покупателя снимаются
+      if (h.status === "pending" && (Date.parse(h.expires_at) < now || same(h.user_id, ctx.me))) { stockApply(db, h.items, 1); h.status = Date.parse(h.expires_at) < now ? "expired" : "cancelled"; }
+    }
+    const stock = db.catalog_state.data?.stock;
+    for (const l of items) {
+      const have = stock?.[l.id]?.qty?.[`${l.color}|${l.size}`];
+      if (have != null && Number(have) < Math.max(Number(l.qty) || 1, 1)) fail("hold:conflict", "40001");
+    }
+    stockApply(db, items, -1);
+    const id = (db.seq.held_orders = (db.seq.held_orders || 0) + 1);
+    held.push({ id, user_id: ctx.me, items: clone(items), total: Math.round(total * 100) / 100, customer_name: a.p_name || "", phone: a.p_phone || "",
+      delivery_way: way, address: a.p_addr || null, created_at: nowIso(), expires_at: new Date(now + 30 * 60 * 1000).toISOString(), status: "pending", order_id: null });
+    return { id, total };
+  },
+  order_hold_cancel: (a, ctx, db) => {
+    const h = (db.held_orders || []).find((x) => same(x.id, a.p_id) && same(x.user_id, ctx.me) && x.status === "pending");
+    if (!h) return false;
+    stockApply(db, h.items, 1);
+    h.status = "cancelled";
+    return true;
+  },
+  // Как hold_confirm: оплата прошла → заказ создаётся сразу оплаченным
+  demo_hold_confirm: (a, ctx, db) => {
+    const h = (db.held_orders || []).find((x) => same(x.id, a.p_id) && ["pending", "expired", "cancelled"].includes(x.status));
+    if (!h) return null;
+    if (h.status === "pending") stockApply(db, h.items, 1);
+    const row = insertOrder(db, ctx, { items: h.items, total: h.total, customer_name: h.customer_name, phone: h.phone,
+      delivery_way: h.delivery_way, address: h.address }, false);
+    updateOrder(db, { ...ctx, staff: null, actor: "Онлайн-оплата" }, row, { status: "paid", payment_method: "card", paid_amount: h.total, paid_at: nowIso(),
+      paid_by: "Онлайн-оплата (тест)", paid_by_id: null, online_pay_test: true, online_pay_id: a.p_pay_id || null });
+    h.status = "paid"; h.order_id = row.id;
+    return row.id;
   },
   /* --- онлайн-оплата (вместо Stripe и функции online-pay — страница демо-оплаты pay.html) --- */
   demo_pay_order: (a, ctx, db) => {

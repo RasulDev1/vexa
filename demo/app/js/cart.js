@@ -169,6 +169,8 @@ export async function placeOrder() {
   try {
     if (!hasOrdersBackend) return sendOrderToManager(order);
     if (hasServer) await askWritePermission(); // бот пришлёт реквизиты в чат; с Supabase они придут в «Мои заказы»
+    // оплата картой — прямо в этом окне, заказ появляется только после оплаты; не вышло — прежний порядок (заказ, потом ссылка)
+    if (useSupabase && api.holdOrder && payWayOf(order) === "online" && onlinePayOn() && (await payInWindow(order, items)) !== "fallback") return;
     const { num } = await api.placeOrder(order);
     if (source && askSource()) {
       storage.set("temp_source_sent", true);
@@ -228,6 +230,50 @@ function sendOrderToManager(order) {
   state.cart = [];
   saveCart();
   showOrderPlaced(order.items, "Отправьте сообщение в открывшемся чате с менеджером — он подтвердит наличие и пришлёт реквизиты для оплаты. Текст заказа также скопирован.");
+}
+
+/** Оплата картой в окне оформления: товар резервируется, форма оплаты открывается тут же, заказ создаётся после оплаты.
+ *  Возвращает "fallback", если так нельзя (в базе или Stripe не настроено): тогда магазин оформит заказ по-старому. */
+async function payInWindow(order, items) {
+  const hold = await api.holdOrder(order).catch((error) => { if (error.code === "no_function") return null; throw error; });
+  if (!hold) return "fallback";
+  let payment;
+  try { payment = await api.preparePayment(hold.id); }
+  catch (error) {
+    api.holdCancel(hold.id);
+    if (["not_configured", "provider", "no_function", "server"].includes(error.code)) return "fallback";
+    throw error;
+  }
+  const paid = (orderNum) => {
+    refreshCatalog();
+    if (source && askSource()) {
+      storage.set("temp_source_sent", true);
+      api.customerSourceAnswer(source).catch(() => {});
+    }
+    if (orderNum) rememberOrder({ ...order, num: orderNum, date: new Date().toISOString(), status: "paid" });
+    state.cart = [];
+    saveCart();
+    renderMyOrders(true); // настоящий статус и сумма оплаты — из базы
+    showOrderPlaced(items, "Оплата прошла, заказ оформлен. Менеджер подготовит его к отправке, статус виден во вкладке «Мои заказы».");
+  };
+  if (payment.paid) return paid(payment.orderId);
+  sheetBody.innerHTML = `<div class="grab"></div><h2 class="p-name">Оплата заказа</h2>
+    <p class="p-desc">К оплате ${formatPrice(hold.total)}. Товар зарезервирован на 30 минут: заказ оформится сразу после оплаты.</p>
+    <div id="payBox"></div>
+    <button class="ghost" id="payCancel" style="width:100%">Отмена</button>`;
+  let unmount = () => {};
+  sheetBody.onclick = (e) => {
+    if (e.target.id !== "payCancel") return;
+    unmount();
+    api.holdCancel(hold.id);
+    closeSheet();
+    toast("Заказ не оформлен, товар снова в наличии");
+  };
+  try { unmount = (await payment.mount($("payBox"), paid, { total: formatPrice(hold.total) })) || unmount; }
+  catch {
+    api.holdCancel(hold.id);
+    return "fallback"; // форму Stripe открыть не удалось
+  }
 }
 
 /** Заказ принимается сам за секунду-две: как только появилась оплата, включаем кнопку прямо в окне «Спасибо за заказ» */

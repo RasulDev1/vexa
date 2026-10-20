@@ -183,6 +183,29 @@ async function payFunction(action, num) {
   throw { code: body?.error || (error.name === "FunctionsFetchError" ? "network" : "server"), raw: error };
 }
 
+/** Функция online-pay для оплаты в окне магазина: резерв вместо заказа */
+async function holdFunction(action, holdId) {
+  if (!(await loadLibrary()) || !(await supabaseLogin())) throw { code: "network" };
+  const { data, error } = await db().functions.invoke("online-pay", { body: { action, hold_id: holdId } });
+  if (!error) return data;
+  const body = await error.context?.json?.().catch(() => null);
+  throw { code: body?.error || (error.name === "FunctionsFetchError" ? "network" : "server"), raw: error };
+}
+
+/** Библиотека Stripe.js: версия в адресе совпадает с версией API, с которой функция создаёт форму */
+let stripeJs;
+function loadStripeJs() {
+  if (window.Stripe) return Promise.resolve();
+  stripeJs ||= new Promise((resolve, reject) => {
+    const script = document.createElement("script");
+    script.src = "https://js.stripe.com/basil/stripe.js";
+    script.onload = resolve;
+    script.onerror = () => { stripeJs = null; reject({ code: "network" }); };
+    document.head.append(script);
+  });
+  return stripeJs;
+}
+
 /** Менеджер меняет заказ, только если тот ещё в ожидаемом статусе — иначе его уже обработал другой */
 async function setStatus(num, from, patch) {
   const { data, error } = await db().from("orders").update(patch).eq("id", num).eq("status", from).select();
@@ -264,6 +287,49 @@ export const supabaseApi = {
   onlinePayCheck: (num) => payFunction("check", num),
   /** Менеджер: постоянная ссылка на оплату заказа картой — CRM подставляет её в реквизиты */
   onlinePayLink: (num) => payFunction("link", num),
+
+  /* ---------- Оплата в окне магазина (supabase-embedded-pay.sql): заказа нет, пока не оплачено ---------- */
+  /** Резерв товара под оплату: { id, total }. Ошибки: conflict (товар закончился), no_function (в базе нет функции), server */
+  async holdOrder(order) {
+    if (!(await supabaseLogin())) throw { code: "unauthorized", reason: loginError };
+    const { data, error, status } = await db().rpc("order_hold", {
+      p_items: order.items, p_total: order.total, p_name: order.name, p_phone: order.phone, p_way: order.way, p_addr: order.addr || "",
+    });
+    if (!error) return data;
+    const reason = /hold:([a-z_]+)/.exec(error.message || "")?.[1];
+    throw { code: reason === "conflict" ? "conflict" : error.code === "PGRST202" || status === 404 ? "no_function" : reason || "server", raw: error };
+  },
+  /** Покупатель закрыл окно оплаты с отменой: резерв снимается */
+  holdCancel: (holdId) => db().rpc("order_hold_cancel", { p_id: holdId }).then(() => {}, () => {}),
+  /** Подготовка формы оплаты в окне магазина. { paid, orderId } — уже оплачено; иначе { mount(element, onPaid, { total }) },
+   *  mount рисует форму Stripe и возвращает функцию «убрать форму». Ошибки: not_configured (нет ключа Stripe), expired, provider, network */
+  async preparePayment(holdId) {
+    const r = await holdFunction("embedded", holdId);
+    if (r?.paid) return { paid: true, orderId: r.order_id };
+    return {
+      async mount(element, onPaid) {
+        await loadStripeJs();
+        const stripe = window.Stripe(r.publishable_key);
+        const init = (stripe.initEmbeddedCheckout || stripe.initEmbeddedCheckoutPage).bind(stripe);
+        let finished = false;
+        const checkout = await init({
+          clientSecret: r.client_secret,
+          onComplete: async () => { // форма сообщила об оплате: просим функцию проверить её в Stripe и создать заказ
+            if (finished) return;
+            finished = true;
+            for (let i = 0; i < 10; i++) {
+              const check = await holdFunction("hold_check", holdId).catch(() => null);
+              if (check?.paid) return onPaid(check.order_id);
+              await new Promise((resolve) => setTimeout(resolve, 1000));
+            }
+            onPaid(null); // заказ создастся сам, как только Stripe сообщит об оплате
+          },
+        });
+        checkout.mount(element);
+        return () => { try { checkout.destroy(); } catch {} };
+      },
+    };
+  },
 
   /* ---------- CRM (supabase-crm.sql): история заказа, возвраты, закупочные цены, источник клиента, выгрузка ---------- */
   orderHistory: (num) => rpc("order_history", { p_id: num }),
