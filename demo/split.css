@@ -192,3 +192,6 @@ a { color: inherit; }
   .crm-card { border-radius: 0; border: 0; box-shadow: none; }
   .crm-dots { display: none; }
 }
+
+.bots { flex: none; margin: 0; padding: 4px var(--gutter) 8px; text-align: center; color: var(--muted); font-size: 13px; }
+.bots a { color: inherit; font-weight: 600; text-decoration: underline; }
