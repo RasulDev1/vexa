@@ -89,8 +89,16 @@ async function connect(url: URL): Promise<Response> {
   const long = await fetch(`https://graph.instagram.com/access_token?grant_type=ig_exchange_token&client_secret=${encodeURIComponent(APP_SECRET)}&access_token=${encodeURIComponent(short.access_token)}`)
     .then((r) => r.json()).catch(() => null);
   if (!long?.access_token) console.error("Instagram long-lived token:", long);
-  await saveToken(long?.access_token ?? short.access_token, long?.access_token ? long.expires_in : 3600);
-  return page("✅ Готово: аккаунт Instagram подключён к магазину. Это окно можно закрыть.");
+  const accessToken = long?.access_token ?? short.access_token;
+  await saveToken(accessToken, long?.access_token ? long.expires_in : 3600);
+  // подписываем аккаунт на сообщения: без этого Instagram не присылает боту директ (переключатель в панели Meta не нужен)
+  const sub = await fetch(`${GRAPH}/me/subscribed_apps?subscribed_fields=messages,messaging_postbacks`,
+    { method: "POST", headers: { Authorization: `Bearer ${accessToken}` } }).then((r) => r.json()).catch(() => null);
+  if (!sub?.success) {
+    console.error("Instagram subscribed_apps:", sub);
+    return page(`Аккаунт подключён, но Instagram не подписал его на сообщения: ${sub?.error?.message ?? "нет ответа"}. Настройте веб-хуки в приложении Meta и откройте ссылку подключения ещё раз.`, 502);
+  }
+  return page("✅ Готово: аккаунт Instagram подключён к магазину и получает сообщения. Это окно можно закрыть.");
 }
 
 async function ig(body: Json): Promise<Json> {
