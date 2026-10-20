@@ -4,8 +4,10 @@
 // Сообщения без выбранного заказа бот не трогает: менеджер отвечает на них как обычно, в приложении Instagram.
 //
 // Секреты функции (Edge Functions → Secrets):
-//   IG_ACCESS_TOKEN — токен аккаунта Instagram (App Dashboard → Instagram → API setup with Instagram login → Generate token)
+//   IG_APP_ID       — Instagram app ID (App Dashboard → Instagram → API setup with Instagram login)
 //   IG_APP_SECRET   — Instagram app secret там же: им Instagram подписывает каждое уведомление
+//   IG_ACCESS_TOKEN — необязательно: токен аккаунта (Generate token). Без него аккаунт подключают по ссылке
+//                     Embed URL (Business login settings), и функция сама получает и продлевает токен (ig_settings).
 //   IG_VERIFY_TOKEN — любая длинная строка из латинских букв и цифр; её же вписываете в настройке Webhooks
 //   SHOP_URL        — адрес магазина (необязательно)
 // SUPABASE_URL и SUPABASE_SERVICE_ROLE_KEY Supabase подставляет сам.
@@ -14,7 +16,8 @@ import { createClient } from "jsr:@supabase/supabase-js@2";
 import { encodeBase64 } from "jsr:@std/encoding@1/base64";
 import { encodeHex } from "jsr:@std/encoding@1/hex";
 
-const TOKEN = Deno.env.get("IG_ACCESS_TOKEN") ?? "";
+const ENV_TOKEN = Deno.env.get("IG_ACCESS_TOKEN") ?? "";
+const APP_ID = Deno.env.get("IG_APP_ID") ?? "";
 const APP_SECRET = Deno.env.get("IG_APP_SECRET") ?? "";
 const VERIFY_TOKEN = Deno.env.get("IG_VERIFY_TOKEN") ?? "";
 const SHOP_URL = Deno.env.get("SHOP_URL") ?? "https://rasuldev1.github.io/vexa/";
@@ -23,7 +26,6 @@ const MAX_FILE = 3 * 1024 * 1024; // как в чате на сайте
 const MAX_TEXT = 1000;            // Instagram не принимает сообщения длиннее
 
 // Подсказка в логах, если забыли добавить секреты
-if (!TOKEN) console.error("Нет секрета IG_ACCESS_TOKEN: Edge Functions → Secrets");
 if (!APP_SECRET) console.error("Нет секрета IG_APP_SECRET: Edge Functions → Secrets");
 if (!VERIFY_TOKEN) console.error("Нет секрета IG_VERIFY_TOKEN: Edge Functions → Secrets");
 
@@ -34,10 +36,67 @@ const db = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SE
 // deno-lint-ignore no-explicit-any
 type Json = any;
 
+/* ---------- Токен аккаунта ----------
+   Из секрета IG_ACCESS_TOKEN, а если его нет — полученный по ссылке подключения (ig_settings).
+   Такой токен живёт 60 дней: функция продлевает его сама, когда до конца остаётся меньше 20 дней. */
+const REDIRECT_URL = `${Deno.env.get("SUPABASE_URL")}/functions/v1/instagram-bot`;
+let saved: { token: string; expires: number } | null = null;
+
+async function token(): Promise<string> {
+  if (ENV_TOKEN) return ENV_TOKEN;
+  if (!saved) {
+    const { data } = await db.from("ig_settings").select("access_token,token_expires_at").eq("id", 1).maybeSingle();
+    if (!data?.access_token) {
+      console.error("Аккаунт Instagram не подключён: откройте ссылку подключения (Embed URL) или задайте секрет IG_ACCESS_TOKEN");
+      return "";
+    }
+    saved = { token: data.access_token, expires: Date.parse(data.token_expires_at ?? "") || 0 };
+  }
+  if (saved.expires && saved.expires - Date.now() < 20 * 86_400_000) {
+    const fresh = await fetch(`https://graph.instagram.com/refresh_access_token?grant_type=ig_refresh_token&access_token=${encodeURIComponent(saved.token)}`)
+      .then((r) => r.json()).catch(() => null);
+    if (fresh?.access_token) await saveToken(fresh.access_token, fresh.expires_in);
+    else console.error("Токен Instagram не продлился:", fresh?.error?.message);
+  }
+  return saved.token;
+}
+
+async function saveToken(accessToken: string, expiresIn: number) {
+  const expires = Date.now() + (Number(expiresIn) || 60 * 86_400) * 1000;
+  const { error } = await db.from("ig_settings")
+    .update({ access_token: accessToken, token_expires_at: new Date(expires).toISOString() }).eq("id", 1);
+  if (error) throw error;
+  saved = { token: accessToken, expires };
+}
+
+/** Instagram вернул на функцию после «Разрешить» по ссылке подключения: меняем код на токен на 60 дней */
+async function connect(url: URL): Promise<Response> {
+  const page = (text: string, status = 200) =>
+    new Response(`<!DOCTYPE html><meta charset="utf-8"><meta name="viewport" content="width=device-width"><body style="font:18px system-ui;padding:32px">${text}</body>`,
+      { status, headers: { "Content-Type": "text/html; charset=utf-8" } });
+  if (url.searchParams.get("error")) return page(`Instagram не дал доступ: ${url.searchParams.get("error_description") ?? url.searchParams.get("error")}`, 400);
+  // ссылку подключения дополняют &state=IG_VERIFY_TOKEN — так чужой аккаунт не подменит магазин
+  if (!VERIFY_TOKEN || url.searchParams.get("state") !== VERIFY_TOKEN) return page("Ссылка подключения неверная: в конце ссылки должно быть &state= и ваш IG_VERIFY_TOKEN.", 403);
+  if (!APP_ID || !APP_SECRET) return page("В Supabase не заданы секреты IG_APP_ID и IG_APP_SECRET.", 500);
+  const form = new URLSearchParams({ client_id: APP_ID, client_secret: APP_SECRET, grant_type: "authorization_code",
+    redirect_uri: REDIRECT_URL, code: (url.searchParams.get("code") ?? "").replace(/#_$/, "") });
+  const short = await fetch("https://api.instagram.com/oauth/access_token", { method: "POST", body: form })
+    .then((r) => r.json()).catch(() => null);
+  if (!short?.access_token) {
+    console.error("Instagram code → token:", short);
+    return page(`Не получилось подключить: ${short?.error_message ?? short?.error?.message ?? "Instagram не ответил"}. Откройте ссылку подключения ещё раз.`, 502);
+  }
+  const long = await fetch(`https://graph.instagram.com/access_token?grant_type=ig_exchange_token&client_secret=${encodeURIComponent(APP_SECRET)}&access_token=${encodeURIComponent(short.access_token)}`)
+    .then((r) => r.json()).catch(() => null);
+  if (!long?.access_token) console.error("Instagram long-lived token:", long);
+  await saveToken(long?.access_token ?? short.access_token, long?.access_token ? long.expires_in : 3600);
+  return page("✅ Готово: аккаунт Instagram подключён к магазину. Это окно можно закрыть.");
+}
+
 async function ig(body: Json): Promise<Json> {
   const response = await fetch(`${GRAPH}/me/messages`, {
     method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${TOKEN}` },
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${await token()}` },
     body: JSON.stringify(body),
   });
   const result = await response.json().catch(() => ({}));
@@ -81,7 +140,7 @@ async function customer(igsid: string): Promise<{ id: number; isNew: boolean }> 
     return { id: Number(known.user_id), isNew: false };
   }
   // имя и логин — для CRM; не получилось — покупатель всё равно заводится
-  const profile = await fetch(`${GRAPH}/${igsid}?fields=name,username`, { headers: { Authorization: `Bearer ${TOKEN}` } })
+  const profile = await fetch(`${GRAPH}/${igsid}?fields=name,username`, { headers: { Authorization: `Bearer ${await token()}` } })
     .then((r) => r.json()).catch(() => ({}));
   if (profile?.error) console.error("Instagram profile:", profile.error.code, profile.error.message);
   const { data, error } = await db.from("ig_users").upsert({
@@ -328,6 +387,7 @@ Deno.serve(async (request) => {
   const url = new URL(request.url);
   // Проверка адреса при настройке Webhooks в Meta
   if (request.method === "GET") {
+    if (url.searchParams.has("code") || url.searchParams.has("error")) return connect(url);
     if (url.searchParams.get("hub.mode") === "subscribe" && VERIFY_TOKEN && url.searchParams.get("hub.verify_token") === VERIFY_TOKEN) {
       return new Response(url.searchParams.get("hub.challenge") ?? "");
     }
