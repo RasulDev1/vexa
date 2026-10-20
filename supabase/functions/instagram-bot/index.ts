@@ -264,7 +264,7 @@ async function sendOrders(to: string, userId: number) {
     return `${i + 1}. ${day(o.created_at)} · ${what} · ${rub(o.total)}\n${STATUS[o.status] ?? ""}`;
   });
   return say(to, `${orders.length === 1 ? "Ваш заказ" : "Ваши заказы"} 👇 Нажмите на нужный, чтобы посмотреть детали и написать менеджеру.\n\n${lines.join("\n\n")}`,
-    orders.map((o: Json, i: number) => quick(`${i + 1}. ${shortDay(o.created_at)} · ${rub(o.total)}`, `ORDER:${o.id}`)));
+    [...orders.map((o: Json, i: number) => quick(`${i + 1}. ${shortDay(o.created_at)} · ${rub(o.total)}`, `ORDER:${o.id}`)), Q_SHOP]);
 }
 
 /* ---------- Фото заказанных товаров ----------
@@ -326,7 +326,7 @@ async function chooseOrder(to: string, userId: number, orderId: number, accepted
   const { data: o } = await db.from("orders")
     .select("id,status,total,items,payment_details,manager_note,created_at")
     .eq("id", orderId).eq("user_id", userId).maybeSingle();
-  if (!o || !ACTIVE.includes(o.status)) return say(to, "Этот заказ уже завершён. Нажмите «📦 Мои заказы», чтобы увидеть актуальные.", [Q_ORDERS]);
+  if (!o || !ACTIVE.includes(o.status)) return say(to, "Этот заказ уже завершён. Нажмите «📦 Мои заказы», чтобы увидеть актуальные.", [Q_SHOP, Q_ORDERS]);
   const items = itemsOf(o);
   await Promise.all([sendPhotos(to, items), OPEN.includes(o.status)
     ? db.from("bot_chat_state").upsert({ telegram_id: userId, order_id: o.id, updated_at: new Date().toISOString() }) : null]);
@@ -339,10 +339,10 @@ async function chooseOrder(to: string, userId: number, orderId: number, accepted
   }
   if (OPEN.includes(o.status)) {
     text += "\n\n✍️ Есть вопрос? Просто напишите сюда — менеджер ответит в этом чате. Закончили — нажмите «Закрыть чат».";
-    return say(to, text, [Q_CLOSE, Q_ORDERS]);
+    return say(to, text, [Q_SHOP, Q_CLOSE, Q_ORDERS]);
   }
   text += "\n\nМенеджер проверяет, всё ли есть в наличии. Как только заказ будет подтверждён, реквизиты для оплаты придут сюда.";
-  return say(to, text, [Q_ORDERS]);
+  return say(to, text, [Q_SHOP, Q_ORDERS]);
 }
 
 const FILE_TYPES = ["image/jpeg", "image/png", "image/webp", "application/pdf"]; // как в Telegram-боте и чате на сайте
@@ -382,9 +382,11 @@ async function handle(igsid: string, m: Json) {
   if (orderId) return chooseOrder(igsid, me.id, orderId);
   if (payload === "CLOSE") {
     await closeChat(me.id);
-    return say(igsid, "Чат по заказу закрыт — ваши сообщения больше не уходят в заказ.\n\nЧтобы написать по заказу снова, откройте его в «📦 Мои заказы».", [Q_ORDERS]);
+    return say(igsid, "Чат по заказу закрыт — ваши сообщения больше не уходят в заказ.\n\nЧтобы написать по заказу снова, откройте его в «📦 Мои заказы».", [Q_SHOP, Q_ORDERS]);
   }
-  if (payload === "SHOP" || SHOP_WORDS.test(text)) return greet(igsid, me.id);
+  // кнопка «🛍 Магазин» — сразу ссылка на каталог, как /shop в Telegram; слова «магазин», «старт» — приветствие
+  if (payload === "SHOP") return sayWithShop(igsid, me.id, "Каталог VEXA 👇");
+  if (SHOP_WORDS.test(text)) return greet(igsid, me.id);
 
   // Заказ выбран (в «Мои заказы» или менеджер написал по нему) — сообщение уходит в чат заказа
   const { data: chosen } = await db.from("bot_chat_state").select("order_id").eq("telegram_id", me.id).maybeSingle();
@@ -412,8 +414,8 @@ async function handle(igsid: string, m: Json) {
     console.error("bot_customer_message", error);
     return say(igsid, SEND_FAILED);
   }
-  if (data?.error === "no_open_order") return say(igsid, NO_ORDER, [Q_ORDERS]);
-  if (data?.error) return say(igsid, ERRORS[data.error] ?? SEND_FAILED, [Q_ORDERS]);
+  if (data?.error === "no_open_order") return say(igsid, NO_ORDER, [Q_SHOP, Q_ORDERS]);
+  if (data?.error) return say(igsid, ERRORS[data.error] ?? SEND_FAILED, [Q_SHOP, Q_ORDERS]);
   // Сообщение передано менеджеру — бот ничего не отвечает
 }
 
@@ -430,7 +432,7 @@ async function managerMessage(messageId: number) {
     (m.body ? `\n\n${m.body}` : "") +
     (m.file_name ? `\n\n📎 Менеджер прислал файл «${m.file_name}» — его можно открыть в магазине, в чате заказа.` : "") +
     "\n\nОтветить можно прямо здесь.";
-  await say(to, text, [Q_ORDERS]);
+  await say(to, text, [Q_SHOP, Q_ORDERS]);
 }
 
 const WAY: Record<string, string> = { cash: " наличными", card: " на карту" };
@@ -442,16 +444,16 @@ async function orderStatus(orderId: number, from: string) {
   if (!to) return;
   const head = `💬 Менеджер VEXA · заказ от ${day(o.created_at)}\n\n`;
   if (from === "new" && o.status === "awaiting_payment") return chooseOrder(to, o.user_id, o.id, true);
-  if (o.status === "cancelled") return say(to, head + (o.manager_note || "К сожалению, заказ отменён."), [Q_SHOP]);
-  if (o.status === "paid") return say(to, `✅ Оплата ${rub(o.paid_amount ?? o.total)} получена. Готовим заказ, менеджер напишет вам о доставке.`, [Q_ORDERS]);
+  if (o.status === "cancelled") return say(to, head + (o.manager_note || "К сожалению, заказ отменён."), [Q_SHOP, Q_ORDERS]);
+  if (o.status === "paid") return say(to, `✅ Оплата ${rub(o.paid_amount ?? o.total)} получена. Готовим заказ, менеджер напишет вам о доставке.`, [Q_SHOP, Q_ORDERS]);
   if (o.status === "delivered" && ["return_requested", "return_approved"].includes(from)) {
-    return say(to, head + `По заказу отказано в возврате: ${o.return_declined ?? ""}`);
+    return say(to, head + `По заказу отказано в возврате: ${o.return_declined ?? ""}`, [Q_SHOP, Q_ORDERS]);
   }
-  if (o.status === "delivered") return say(to, "📦 Заказ вручён. Спасибо за покупку!", [Q_SHOP]);
+  if (o.status === "delivered") return say(to, "📦 Заказ вручён. Спасибо за покупку!", [Q_SHOP, Q_ORDERS]);
   if (o.status === "return_approved") {
-    return say(to, head + `Возврат одобрен. Привезите или отправьте вещь с бирками, и мы вернём ${rub(o.return_amount)}${WAY[o.return_method] ?? ""}.`);
+    return say(to, head + `Возврат одобрен. Привезите или отправьте вещь с бирками, и мы вернём ${rub(o.return_amount)}${WAY[o.return_method] ?? ""}.`, [Q_SHOP, Q_ORDERS]);
   }
-  if (o.status === "returned") return say(to, head + `Возврат вручён: вещь получили, вернули вам ${rub(o.refund_amount)}${WAY[o.refund_method] ?? ""}.`);
+  if (o.status === "returned") return say(to, head + `Возврат вручён: вещь получили, вернули вам ${rub(o.refund_amount)}${WAY[o.refund_method] ?? ""}.`, [Q_SHOP, Q_ORDERS]);
 }
 
 /** Запрос от базы подписан секретом из ig_settings — его знают только база и эта функция */
