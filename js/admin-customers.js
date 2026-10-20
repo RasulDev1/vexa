@@ -41,12 +41,15 @@ function sorted() {
   return list.sort(by[sort]);
 }
 
+/** Покупатель из директа Instagram (supabase-instagram.sql): его ID в базе меньше нуля */
+const fromInstagram = (c) => Number(c.id) < 0;
+
 const tagsHtml = (tags = []) => tags.length ? `<span class="cl-tags">${tags.map((t) => `<i>${escapeHtml(t)}</i>`).join("")}</span>` : "";
 
 const customerRow = (c) => `<button class="an-day an-staff cl-row" data-customer="${Number(c.id)}">
   <span><b>${escapeHtml(c.name || "Без имени")}</b>${tagsHtml(c.tags)}
     <small>${escapeHtml(c.phone || (c.username ? "@" + c.username : ""))}</small>
-    <small>${ordersWord(Number(c.orders))} · последний ${lastSeen(c.last_at)}${c.returns ? ` · возвратов ${c.returns}` : ""}${c.notes ? ` · 📝${c.notes}` : ""}${c.source ? ` · ${escapeHtml(c.source)}` : ""}</small></span>
+    <small>${fromInstagram(c) ? "Instagram · " : ""}${ordersWord(Number(c.orders))} · последний ${lastSeen(c.last_at)}${c.returns ? ` · возвратов ${c.returns}` : ""}${c.notes ? ` · 📝${c.notes}` : ""}${c.source ? ` · ${escapeHtml(c.source)}` : ""}</small></span>
   <span>${formatPrice(Number(c.spent) || 0)}<small>купил на ›</small></span></button>`;
 
 function renderList() {
@@ -79,7 +82,8 @@ async function loadList() {
 /* ---------- Карточка ---------- */
 const contactLinks = (c) => [
   c.phone && `<a class="ghost cl-btn" href="tel:${escapeHtml(c.phone.replace(/[^\d+]/g, ""))}">Позвонить</a>`,
-  `<a class="ghost cl-btn" href="${c.username ? `https://t.me/${encodeURIComponent(c.username)}` : `tg://user?id=${Number(c.id)}`}" target="_blank" rel="noopener">Написать в Telegram</a>`,
+  fromInstagram(c) ? c.username && `<a class="ghost cl-btn" href="https://ig.me/m/${encodeURIComponent(c.username)}" target="_blank" rel="noopener">Написать в Instagram</a>`
+    : `<a class="ghost cl-btn" href="${c.username ? `https://t.me/${encodeURIComponent(c.username)}` : `tg://user?id=${Number(c.id)}`}" target="_blank" rel="noopener">Написать в Telegram</a>`,
 ].filter(Boolean).join("");
 
 const cardOrderHtml = (o) => `<article class="ord st-${o.status === "awaiting_payment" ? "accepted" : o.status === "cancelled" ? "rejected" : o.status}">
@@ -105,7 +109,7 @@ function renderCard() {
     <h2 class="p-name">${escapeHtml(c.name || "Клиент")}</h2>
     <dl class="ord-contacts">
       ${c.phone ? `<dt>Телефон</dt><dd>${escapeHtml(c.phone)}</dd>` : ""}
-      <dt>Telegram</dt><dd>${c.username ? "@" + escapeHtml(c.username) : `ID ${Number(c.id)}`}</dd></dl>
+      <dt>${fromInstagram(c) ? "Instagram" : "Telegram"}</dt><dd>${c.username ? "@" + escapeHtml(c.username) : `ID ${Number(c.id)}`}</dd></dl>
     <div class="ord-actions">${contactLinks(c)}</div>
     ${open.error ? `<p class="hint">${open.error}</p>` : !card ? `<p class="adm-sub">Загружаем…</p>` : `
     <div class="an-grid an-top">

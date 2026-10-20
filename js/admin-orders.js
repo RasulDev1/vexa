@@ -53,11 +53,12 @@ function updateOrdersButton() {
   button.classList.toggle("has-new", n + chats > 0);
 }
 
-/** Контакты покупателя текстом: логин Telegram (или ID, если логина нет) и телефон */
+/** Контакты покупателя текстом: логин Telegram или Instagram (или ID, если логина нет) и телефон.
+    У покупателя из директа Instagram ID в базе меньше нуля (supabase-instagram.sql). */
 function contactsHtml({ user = {}, phone }) {
-  const telegramLogin = user.username ? `@${escapeHtml(user.username)}` : user.id ? `ID ${Number(user.id)}` : "";
+  const login = user.username ? `@${escapeHtml(user.username)}` : user.id ? `ID ${Number(user.id)}` : "";
   return `<dl class="ord-contacts">
-    ${telegramLogin ? `<dt>Telegram</dt><dd>${telegramLogin}</dd>` : ""}
+    ${login ? `<dt>${Number(user.id) < 0 ? "Instagram" : "Telegram"}</dt><dd>${login}</dd>` : ""}
     ${phone ? `<dt>Телефон</dt><dd>${escapeHtml(phone)}</dd>` : ""}</dl>`;
 }
 

@@ -52,7 +52,7 @@ type Json = any;
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, apikey, content-type, x-client-info, x-telegram-init-data, x-staff-token",
+  "Access-Control-Allow-Headers": "authorization, apikey, content-type, x-client-info, x-telegram-init-data, x-staff-token, x-ig-token",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 const answer = (body: Json, status = 200) =>
@@ -96,9 +96,10 @@ function botChat(): Promise<string> {
     .then((url) => { if (!url) botLink = null; return url; }); // не вышло — спросим в следующий раз
   return botLink;
 }
-/** Куда вернуть покупателя после оплаты: PAY_RETURN_URL, чат бота (там его ждёт «Оплата получена») или сайт */
-const shopAfter = async (orderId: number) =>
-  RETURN_URL || await botChat() || `${SHOP_URL}${SHOP_URL.includes("?") ? "&" : "?"}paid=${orderId}`;
+/** Куда вернуть покупателя после оплаты: PAY_RETURN_URL, чат бота (там его ждёт «Оплата получена») или сайт.
+    Покупателя из Instagram (ID меньше нуля) — на сайт: «Оплата получена» ему придёт в директ. */
+const shopAfter = async (orderId: number, userId: number) =>
+  RETURN_URL || (userId < 0 ? "" : await botChat()) || `${SHOP_URL}${SHOP_URL.includes("?") ? "&" : "?"}paid=${orderId}`;
 
 /** Тестовый ключ: платить тестовой картой могут только проверяющие */
 const allowed = (userId: unknown) => !TEST_MODE || TESTERS.includes("*") || TESTERS.includes(String(userId));
@@ -106,9 +107,10 @@ const allowed = (userId: unknown) => !TEST_MODE || TESTERS.includes("*") || TEST
 /** Заказ покупателя, который ждёт оплаты, — проверяет база по его подписи Telegram */
 async function customerOrder(req: Request, orderId: number): Promise<Json> {
   const initData = req.headers.get("x-telegram-init-data") ?? "";
+  const igToken = req.headers.get("x-ig-token") ?? ""; // покупатель из Instagram (supabase-instagram.sql)
   const asCustomer = createClient(SUPABASE_URL, ANON_KEY, {
     auth: { persistSession: false },
-    global: { headers: initData ? { "X-Telegram-Init-Data": initData } : {} },
+    global: { headers: initData ? { "X-Telegram-Init-Data": initData } : igToken ? { "X-Ig-Token": igToken } : {} },
   });
   const { data, error } = await asCustomer.rpc("online_pay_order", { p_id: orderId });
   if (error) {
@@ -152,7 +154,8 @@ async function applyPayment(session: Json): Promise<boolean> {
 async function notifyCustomer(orderId: number, amount: number) {
   if (!BOT_TOKEN) return;
   const { data } = await admin.from("orders").select("user_id").eq("id", orderId).single();
-  if (!data?.user_id) return;
+  // у покупателя из Instagram ID меньше нуля: об оплате ему пишет функция instagram-bot
+  if (!data?.user_id || data.user_id < 0) return;
   const rub = `${Math.round(amount).toLocaleString("ru-RU")} ₽`;
   await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
     method: "POST",
@@ -188,7 +191,7 @@ async function openSession(order: Json): Promise<Json> {
     // тестовый ключ принимает только тестовые карты Stripe — подсказка прямо над кнопкой оплаты
     ...(TEST_MODE ? { "custom_text[submit][message]": TEST_CARD_HINT } : {}),
     success_url: await doneLink(orderId), // функция отметит оплату и вернёт покупателя в магазин
-    cancel_url: RETURN_URL || await botChat() || SHOP_URL,
+    cancel_url: RETURN_URL || (Number(order.user_id) < 0 ? "" : await botChat()) || SHOP_URL,
   }, crypto.randomUUID());
   if (!session.url) throw { code: "server" };
   await admin.rpc("online_pay_start", { p_id: orderId, p_pay_id: session.id, p_url: session.url, p_test: !session.livemode });
@@ -258,7 +261,7 @@ async function browser(url: URL): Promise<Response> {
   try {
     if (done) {
       if (order.status === "awaiting_payment" && order.pay_id) await applyPayment(await stripe(`/checkout/sessions/${order.pay_id}`));
-      return go(await shopAfter(orderId));
+      return go(await shopAfter(orderId, Number(order.user_id)));
     }
     if (order.status === "paid") return say("Этот заказ уже оплачен. Спасибо!");
     if (order.status !== "awaiting_payment") return say("Этот заказ сейчас нельзя оплатить. Откройте его в магазине, в «Мои заказы».", 409);
