@@ -181,7 +181,7 @@ export async function placeOrder() {
     state.cart = [];
     saveCart();
     const payHere = useSupabase && payWayOf(order) === "online" && onlinePayOn(); // онлайн-оплата — кнопка прямо в этом окне
-    showOrderPlaced(items, useSupabase ? "Заказ принят автоматически. Реквизиты или ссылка на оплату появятся сразу здесь, во вкладке «Мои заказы», и придут в чат бота." : undefined, payHere ? num : 0);
+    showOrderPlaced(items, useSupabase ? "Заказ принят автоматически. Реквизиты или ссылка на оплату появятся сразу здесь, во вкладке «Мои заказы», и придут в чат бота." : undefined, payHere ? num : 0, payWayOf(order) === "online");
     if (payHere) waitPayButton(num);
     // база принимает заказ сама, через секунду-две: догружаем статус, если событие пришло раньше записи заказа
     if (useSupabase && !payHere) setTimeout(() => renderMyOrders(true), 2500);
@@ -302,11 +302,11 @@ async function waitPayButton(num) {
   if (button) button.textContent = "Оплата появится в «Мои заказы»";
 }
 
-function showOrderPlaced(items, note = "Когда менеджер проверит наличие, бот пришлёт в этот чат реквизиты для оплаты.", payNum = 0) {
+function showOrderPlaced(items, note = "Когда менеджер проверит наличие, бот пришлёт в этот чат реквизиты для оплаты.", payNum = 0, unpaid = false) {
   sheetBody.innerHTML = `<div class="grab"></div><div class="done">
     <div class="finish" aria-hidden="true"><span></span><span></span><span></span><span></span></div>
     <svg class="check" viewBox="0 0 54 54" aria-hidden="true"><circle cx="27" cy="27" r="27"/><path d="M16 28 L24 36 L39 19"/></svg>
-    <p class="big">${payNum ? "Заказ принят, осталось оплатить" : "Спасибо за заказ!"}</p>
+    <p class="big">${payNum || unpaid ? "Заказ принят, осталось оплатить" : "Спасибо за заказ!"}</p>
     <p class="order-lead">Дата оформления: ${orderDate(new Date())}<br>Вы выбрали:</p>
     ${orderItemsHtml({ items })}
     <p class="p-desc">${note}</p>
