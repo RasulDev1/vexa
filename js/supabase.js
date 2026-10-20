@@ -39,11 +39,31 @@ const STAFF_TOKEN_KEY = "temp_staff_token";
 let staffToken = storage.get(STAFF_TOKEN_KEY, "");
 let staffSession = null; // { name, login, role: "manager" | "admin", staff_topic }
 
+/* Покупатель из Instagram (supabase-instagram.sql): бот присылает в директ личную ссылку …/?ig=ключ.
+   Ключ запоминается на устройстве и уходит в заголовке X-Ig-Token — по нему база узнаёт покупателя,
+   как по подписи Telegram. В Telegram по-прежнему входим подписью Telegram. */
+const IG_TOKEN_KEY = "temp_ig_token";
+const igToken = takeIgToken();
+const viaInstagram = Boolean(igToken) && !telegram?.initData;
+function takeIgToken() {
+  const params = new URLSearchParams(location.search);
+  const fromLink = params.get("ig");
+  if (!fromLink) return storage.get(IG_TOKEN_KEY, "");
+  storage.set(IG_TOKEN_KEY, fromLink);
+  // ключ убираем из адреса, чтобы им случайно не поделились вместе со ссылкой
+  params.delete("ig");
+  history.replaceState(null, "", location.pathname + (params.size ? "?" + params : "") + location.hash);
+  return fromLink;
+}
+/** ID покупателя в базе после входа: Telegram ID, а у покупателя из Instagram — отрицательный */
+export const supabaseUserId = () => me?.telegram_id ?? null;
+
 function db() {
   if (client) return client;
   if (!window.supabase?.createClient) throw { code: "server" };
   const headers = {};
   if (telegram?.initData) headers["X-Telegram-Init-Data"] = telegram.initData;
+  else if (viaInstagram) headers["X-Ig-Token"] = igToken;
   if (staffToken) headers["X-Staff-Token"] = staffToken;
   client = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY, {
     auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
@@ -60,7 +80,7 @@ export function supabaseLogin() {
   if (me) return Promise.resolve(me);
   loginPromise ||= (async () => {
     if (!(await loadLibrary())) return fail_("no_library");             // не загрузилась ни своя копия, ни CDN
-    const { data, error, status } = await db().rpc("tg_login");
+    const { data, error, status } = await db().rpc(viaInstagram ? "ig_login" : "tg_login");
     if (!error && data?.telegram_id) { loginError = null; return (me = data); }
     console.warn("Supabase tg_login:", status, error);
     if (error?.code === "PGRST202" || status === 404) return fail_("no_function"); // в базе нет tg_login

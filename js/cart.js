@@ -2,7 +2,7 @@
 import { $, telegram, telegramUser, formatPrice, orderDate, escapeHtml, haptic, toast, on, storage, replayAnimation, copyToClipboard, openLink } from "./core.js?v=20261001b";
 import { DELIVERY_METHODS } from "./data.js?v=20261001b";
 import { state, api, saveCart, findProduct, cartTotal, hasServer, useSupabase, hasOrdersBackend } from "./state.js?v=20261001b";
-import { watchOrders } from "./supabase.js?v=20261001b";
+import { watchOrders, supabaseUserId } from "./supabase.js?v=20261001b";
 import { MANAGER_USERNAME, ONLINE_PAY, ONLINE_PAY_TESTERS, ONLINE_PAY_TEST } from "./config.js?v=20261001b";
 import { colorName, swatchBackground, stockLeft, refreshCatalog } from "./catalog.js?v=20261001b";
 import { productImage } from "./photos.js?v=20261001b";
@@ -199,7 +199,8 @@ const LOGIN_ERRORS = {
   no_library: "Не загрузилась библиотека базы заказов. Проверьте интернет и перезапустите магазин.",
   no_function: "Магазин не настроен: в базе Supabase нет функции tg_login. Сообщите администратору.",
   bad_signature: "База заказов отклонила вход (код 42501): её правила требуют подписанные данные Telegram, а их нет или токен бота в Supabase Vault неверный.",
-  tg_no_header: "Telegram не передал данные входа. Откройте магазин кнопкой «Магазин» в чате с ботом, а не по ссылке.",
+  tg_no_header: "Магазин не узнал вас. Откройте его кнопкой «Магазин» в чате с ботом в Telegram или по ссылке, которую бот прислал в директ Instagram.",
+  tg_ig_expired: "Ссылка на магазин устарела. Напишите в директ Instagram «Магазин» — бот пришлёт новую.",
   tg_bad_hash: "Подпись Telegram не совпала: магазин открыт из другого бота, или в базе сохранён токен другого бота. Сообщите администратору.",
   tg_expired: "Данные входа устарели. Закройте магазин полностью и откройте снова.",
   tg_no_token: "Магазин не настроен: в базе не задан токен бота. Сообщите администратору.",
@@ -251,7 +252,7 @@ const isPaymentLink = (text) => /^https:\/\/\S+$/.test(text.trim());
 // Тестовый ключ Stripe принимает только тестовые карты — подсказываем номер покупателю
 const ONLINE_PAY_TEST_HINT = ONLINE_PAY_TEST ? "<br>Это тестовая оплата, деньги не списываются. Оплатить можно только картой <b>4242 4242 4242 4242</b>: срок любой в будущем, CVC любые 3 цифры." : "";
 export const onlinePayFor = (userId) => ONLINE_PAY || ONLINE_PAY_TESTERS.map(String).includes(String(userId));
-const onlinePayOn = () => Boolean(api.onlinePay) && onlinePayFor(telegramUser?.id);
+const onlinePayOn = () => Boolean(api.onlinePay) && onlinePayFor(telegramUser?.id ?? supabaseUserId());
 /** Ссылка на оплату картой, которую CRM подставила в реквизиты (функция online-pay) */
 const ONLINE_LINK = /https:\/\/\S+\/functions\/v1\/online-pay\?order=\d+&sig=[0-9a-f]+/;
 export const onlinePayLink = (text) => ONLINE_LINK.exec(text || "")?.[0] || "";

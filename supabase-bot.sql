@@ -97,7 +97,8 @@ begin
   if not new.from_staff then return null; end if;
   select user_id, created_at into owner, created from public.orders where id = new.order_id;
   select decrypted_secret into token from vault.decrypted_secrets where name = 'telegram_bot_token' limit 1;
-  if owner is null or token is null or token = 'ВСТАВЬТЕ_ТОКЕН_БОТА' then return null; end if;
+  -- owner < 0 — покупатель из Instagram: ему пишет функция instagram-bot (supabase-instagram.sql)
+  if owner is null or owner < 0 or token is null or token = 'ВСТАВЬТЕ_ТОКЕН_БОТА' then return null; end if;
   local_date := created at time zone 'Europe/Moscow'; -- дата по времени магазина (Краснодар)
   -- покупателю — без номера заказа: «заказ от 3 октября»
   txt := '💬 Менеджер VEXA · заказ от ' || extract(day from local_date)::int || ' ' || months[extract(month from local_date)::int]
@@ -136,7 +137,7 @@ create or replace function public.orders_requisites_to_bot()
 returns trigger language plpgsql security definer set search_path = '' as $$
 declare token text;
 begin
-  if not (old.status = 'new' and new.status = 'awaiting_payment') or new.user_id is null then return null; end if;
+  if not (old.status = 'new' and new.status = 'awaiting_payment') or new.user_id is null or new.user_id < 0 then return null; end if;
   select decrypted_secret into token from vault.decrypted_secrets where name = 'telegram_bot_token' limit 1;
   if token is null or token = 'ВСТАВЬТЕ_ТОКЕН_БОТА' then return null; end if;
   -- ответ покупателя (чек) уйдёт в чат этого заказа

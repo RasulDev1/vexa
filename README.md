@@ -218,6 +218,51 @@ Permissions → Repository permissions → **Contents: Read and write** → **Ge
 Для боевой оплаты в России понадобится ЮKassa, CloudPayments или эквайринг банка (нужны ИП или самозанятость):
 поменяется только функция `online-pay`, кнопка и база останутся.
 
+## Магазин в директе Instagram
+
+Тот же сайт, те же заказы и та же CRM, что в Telegram. Покупатель пишет в директ, бот присылает ему личную ссылку
+на сайт: по ней магазин узнаёт покупателя без входа и пароля. Дальше всё как в Telegram: заказ, «Мои заказы»,
+реквизиты, чек и переписка с менеджером по заказу. Менеджер работает в той же CRM, клиенты из Instagram помечены
+«Instagram» и пишутся в той же карточке клиента.
+
+Бот отвечает сам только новому покупателю (приветствие со ссылкой на магазин), на «Магазин», «Мои заказы» и в чате
+по выбранному заказу. Остальные сообщения он не трогает: на них менеджер отвечает как обычно, в приложении Instagram.
+
+Ограничения Instagram:
+- Писать покупателю можно только в течение **24 часов** после его последнего сообщения. Если покупатель молчит дольше,
+  сообщение менеджера из CRM и уведомление о статусе в директ не уйдут (на сайте в «Моих заказах» всё будет видно).
+- Мини-приложений, как в Telegram, нет: сайт открывается во встроенном браузере Instagram.
+
+**Подключение**
+
+1. Аккаунт Instagram магазина переведите в **профессиональный** (Настройки → Тип аккаунта и инструменты).
+   В приложении Instagram: Настройки → Сообщения и ответы на истории → Подключённые инструменты →
+   включите **«Разрешить доступ к сообщениям»**.
+2. [developers.facebook.com](https://developers.facebook.com/apps) → **Create app** → сценарий
+   **«Manage messaging & content on Instagram»**, тип **Business**.
+3. В приложении: **Instagram → API setup with Instagram login**:
+   - **Generate access tokens → Add account**: войдите в аккаунт магазина и скопируйте токен (`IG_ACCESS_TOKEN`);
+   - там же **Instagram app secret** (`IG_APP_SECRET`).
+4. Supabase → SQL Editor: запустите заново `supabase-bot.sql`, затем `supabase-instagram.sql`. Если ID проекта Supabase
+   не `ztcltngfpnhhuzyyqnfw`, поправьте адрес в `ig_function_url()`.
+5. Supabase → Edge Functions: создайте функцию `instagram-bot` с кодом из `supabase/functions/instagram-bot/index.ts`
+   и **выключите Verify JWT** (или `supabase functions deploy instagram-bot --no-verify-jwt`).
+   Если подключена онлайн-оплата, заново разверните и `online-pay`.
+6. Edge Functions → Secrets: `IG_ACCESS_TOKEN`, `IG_APP_SECRET` и `IG_VERIFY_TOKEN` — любая длинная строка
+   из латинских букв и цифр.
+7. В приложении Meta: **Instagram → API setup with Instagram login → Configure webhooks**:
+   Callback URL — `https://<проект>.supabase.co/functions/v1/instagram-bot`, Verify token — тот же `IG_VERIFY_TOKEN`
+   → **Verify and save**. Подпишитесь на поля **messages** и **messaging_postbacks**.
+8. **App settings → Basic**: Privacy Policy URL — `https://<логин>.github.io/<репозиторий>/privacy.html`,
+   затем переключите приложение в режим **Live**.
+9. Напишите аккаунту магазина с другого аккаунта Instagram — бот пришлёт приветствие и ссылку на магазин.
+
+Бот работает только с аккаунтом магазина, поэтому проверка приложения (App Review) не нужна: хватает стандартного доступа.
+Если сообщения от покупателей не доходят до бота, а от вашего тестового аккаунта доходят, Meta требует для приложения
+расширенный доступ — его выдают после проверки приложения и компании.
+
+Токен из шага 3 действует 60 дней. Чтобы продлить, сгенерируйте новый там же и обновите секрет `IG_ACCESS_TOKEN`.
+
 ## Как добавить или убрать администратора
 
 Измените `ADMIN_IDS` в `.env` (ID через запятую) и перезапустите магазин.

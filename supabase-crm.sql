@@ -313,8 +313,15 @@ end $$;
 -- Пока решается возврат, покупатель и менеджер переписываются в чате заказа
 create or replace function public.order_messages_before_insert()
 returns trigger language plpgsql security definer set search_path = '' as $$
-declare me bigint := public.tg_id(); staff boolean := public.is_staff(); o public.orders;
+declare
+  -- через бота (Telegram или Instagram) отправителя передаёт функция bot_customer_message (supabase-bot.sql)
+  me bigint := nullif(current_setting('temp.bot_sender', true), '')::bigint;
+  staff boolean := public.is_staff();
+  o public.orders;
 begin
+  if me is null then
+    begin me := public.tg_id(); exception when others then me := null; end;
+  end if;
   select * into o from public.orders where id = new.order_id;
   if o.id is null or (me is null and not staff) then raise exception 'chat:denied' using errcode = '42501'; end if;
   if o.status not in ('awaiting_payment', 'paid', 'return_requested', 'return_approved') then raise exception 'chat:closed' using errcode = '42501'; end if;
@@ -341,7 +348,7 @@ declare token text; txt text; local_date timestamp;
   months text[] := array['января', 'февраля', 'марта', 'апреля', 'мая', 'июня',
                          'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря'];
 begin
-  if new.user_id is null or new.status = old.status then return null; end if;
+  if new.user_id is null or new.user_id < 0 or new.status = old.status then return null; end if;
   if not (new.status in ('return_approved', 'returned') or (new.status = 'delivered' and old.status in ('return_requested', 'return_approved'))) then return null; end if;
   if to_regclass('vault.decrypted_secrets') is null then return null; end if;
   execute 'select decrypted_secret from vault.decrypted_secrets where name = ''telegram_bot_token'' limit 1' into token;
