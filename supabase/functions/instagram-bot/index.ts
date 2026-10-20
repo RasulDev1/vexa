@@ -383,7 +383,9 @@ async function handle(igsid: string, m: Json) {
   if (orderId) return chooseOrder(igsid, me.id, orderId);
   if (payload === "CLOSE") {
     await closeChat(me.id);
-    return say(igsid, "Чат по заказу закрыт — ваши сообщения больше не уходят в заказ.\n\nЧтобы написать по заказу снова, откройте его в «📦 Мои заказы».", [Q_SHOP, Q_ORDERS]);
+    // после закрытия чата — «главная»: карточка с кнопками магазина и заказов
+    return sayWithShop(igsid, me.id, "Чат по заказу закрыт — ваши сообщения больше не уходят в заказ.\n\n" +
+      "🛍 Каталог — по кнопке ниже.\n📦 Чтобы написать по заказу снова, откройте его в «Мои заказы».");
   }
   // кнопка «🛍 Магазин» — сразу ссылка на каталог, как /shop в Telegram; слова «магазин», «старт» — приветствие
   if (payload === "SHOP") return sayWithShop(igsid, me.id, "Каталог VEXA 👇");
