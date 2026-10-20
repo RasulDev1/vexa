@@ -254,7 +254,8 @@ Permissions → Repository permissions → **Contents: Read and write** → **Ge
    **API setup with Instagram login → Set up Instagram business login → Business login settings**:
    OAuth redirect URI — `https://<проект>.supabase.co/functions/v1/instagram-bot` → Save. Скопируйте **Embed URL**,
    допишите в конец `&state=` и ваш `IG_VERIFY_TOKEN`, откройте в браузере, где вы вошли в аккаунт магазина,
-   и нажмите «Разрешить». Функция покажет «Готово», сохранит токен и будет сама продлевать его.
+   и нажмите «Разрешить». Функция покажет «Готово», сохранит токен, подпишет аккаунт на сообщения
+   и будет сама продлевать токен. Если веб-хуки (шаг 7) ещё не настроены, сделайте их и откройте ссылку ещё раз.
    (Можно и по-старому: **Generate token** и секрет `IG_ACCESS_TOKEN` — тогда токен нужно обновлять раз в 60 дней.)
 7. В приложении Meta: **Instagram → API setup with Instagram login → Configure webhooks**:
    Callback URL — `https://<проект>.supabase.co/functions/v1/instagram-bot`, Verify token — тот же `IG_VERIFY_TOKEN`
