@@ -101,7 +101,22 @@ async function connect(url: URL): Promise<Response> {
     console.error("Instagram subscribed_apps:", sub);
     return page(`Аккаунт подключён, но Instagram не подписал его на сообщения: ${sub?.error?.message ?? "нет ответа"}. Настройте веб-хуки в приложении Meta и откройте ссылку подключения ещё раз.`, 502);
   }
+  await setMenu(accessToken);
   return page("✅ Готово: аккаунт Instagram подключён к магазину и получает сообщения. Это окно можно закрыть.");
+}
+
+/** Постоянное меню директа (кнопка ☰ у поля ввода) — как кнопка «Магазин» и «📦 Мои заказы» в Telegram.
+    Не получилось — бот работает и без него: те же кнопки приходят под сообщениями. */
+async function setMenu(accessToken: string) {
+  const result = await fetch(`${GRAPH}/me/messenger_profile`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+    body: JSON.stringify({ platform: "instagram", persistent_menu: [{ locale: "default", call_to_actions: [
+      { type: "postback", title: "🛍 Магазин", payload: "SHOP" },
+      { type: "postback", title: "📦 Мои заказы", payload: "ORDERS" },
+    ] }] }),
+  }).then((r) => r.json()).catch(() => null);
+  if (!result?.result) console.error("Instagram persistent menu:", result?.error?.message ?? result);
 }
 
 async function ig(body: Json): Promise<Json> {
@@ -117,6 +132,8 @@ async function ig(body: Json): Promise<Json> {
   return result;
 }
 const sent = (result: Json) => Boolean(result?.message_id);
+/** «Печатает…» в директе сразу, пока бот собирает ответ: покупатель видит, что бот уже отвечает */
+const typing = (to: string) => ig({ recipient: { id: to }, sender_action: "typing_on" }).catch(() => null);
 
 /** Текст; длинный — несколькими сообщениями. Кнопки быстрого ответа — под последним. */
 async function say(to: string, text: string, quick?: Json[]) {
@@ -144,11 +161,18 @@ const Q_CLOSE = quick("✖️ Закрыть чат", "CLOSE");
 
 /* ---------- Покупатель ----------
    В базе — под отрицательным ID (ig_users): так все заказы, чат и CRM работают как с Telegram ID. */
+const known = new Map<string, number>(); // igsid → ID покупателя, пока функция «тёплая»: без лишнего запроса к базе
+const background: Promise<unknown>[] = []; // запись, которую не нужно ждать перед ответом покупателю
+
 async function customer(igsid: string): Promise<{ id: number; isNew: boolean }> {
-  const { data: known } = await db.from("ig_users").select("user_id").eq("igsid", igsid).maybeSingle();
-  if (known) {
-    await db.from("ig_users").update({ last_message_at: new Date().toISOString() }).eq("user_id", known.user_id);
-    return { id: Number(known.user_id), isNew: false };
+  let id = known.get(igsid);
+  if (id === undefined) {
+    const { data } = await db.from("ig_users").select("user_id").eq("igsid", igsid).maybeSingle();
+    if (data) known.set(igsid, id = Number(data.user_id));
+  }
+  if (id !== undefined) {
+    background.push(db.from("ig_users").update({ last_message_at: new Date().toISOString() }).eq("user_id", id).then());
+    return { id, isNew: false };
   }
   // имя и логин — для CRM; не получилось — покупатель всё равно заводится
   const profile = await fetch(`${GRAPH}/${igsid}?fields=name,username`, { headers: { Authorization: `Bearer ${await token()}` } })
@@ -158,24 +182,32 @@ async function customer(igsid: string): Promise<{ id: number; isNew: boolean }> 
     igsid, username: profile?.username ?? null, name: profile?.name ?? null, last_message_at: new Date().toISOString(),
   }, { onConflict: "igsid" }).select("user_id").single();
   if (error) throw error;
+  known.set(igsid, Number(data.user_id));
   return { id: Number(data.user_id), isNew: true };
 }
 
 async function igsidOf(userId: number): Promise<string | null> {
+  for (const [igsid, id] of known) if (id === userId) return igsid;
   const { data } = await db.from("ig_users").select("igsid").eq("user_id", userId).maybeSingle();
+  if (data?.igsid) known.set(data.igsid, userId);
   return data?.igsid ?? null;
 }
 
 /** Личная ссылка на сайт: по ключу из неё сайт узнаёт покупателя, как Telegram — по подписи */
+const loginKeys = new Map<number, string>();
 async function shopLink(userId: number, tab = "") {
-  const { data: last } = await db.from("ig_logins").select("token").eq("user_id", userId)
-    .order("created_at", { ascending: false }).limit(1).maybeSingle();
-  let token = last?.token;
+  let token = loginKeys.get(userId);
+  if (!token) {
+    const { data: last } = await db.from("ig_logins").select("token").eq("user_id", userId)
+      .order("created_at", { ascending: false }).limit(1).maybeSingle();
+    token = last?.token;
+  }
   if (!token) {
     token = encodeHex(crypto.getRandomValues(new Uint8Array(24)));
     const { error } = await db.from("ig_logins").insert({ token, user_id: userId });
     if (error) throw error;
   }
+  loginKeys.set(userId, token);
   const url = new URL(SHOP_URL);
   url.searchParams.set("ig", token);
   if (tab) url.searchParams.set("tab", tab);
@@ -218,9 +250,9 @@ const closeChat = (userId: number) => db.from("bot_chat_state").delete().eq("tel
 
 /** «Мои заказы»: активные заказы списком и кнопкой на каждый — нажал, и сообщения уходят менеджеру по этому заказу */
 async function sendOrders(to: string, userId: number) {
-  await closeChat(userId);
-  const { data: orders, error } = await db.from("orders").select("id,status,total,items,created_at")
-    .eq("user_id", userId).in("status", ACTIVE).order("id", { ascending: false }).limit(10);
+  const [, { data: orders, error }] = await Promise.all([closeChat(userId),
+    db.from("orders").select("id,status,total,items,created_at")
+      .eq("user_id", userId).in("status", ACTIVE).order("id", { ascending: false }).limit(10)]);
   if (error) {
     console.error("orders", error);
     return say(to, "Не получилось загрузить заказы 😔 Попробуйте, пожалуйста, ещё раз через минуту.");
@@ -236,10 +268,56 @@ async function sendOrders(to: string, userId: number) {
 }
 
 /* ---------- Фото заказанных товаров ----------
-   Ссылку на фото сайт кладёт в заказ (items[].photo). У старых заказов её нет — тогда фото не отправляем. */
+   Как в Telegram-боте: ссылку на фото сайт кладёт в заказ (items[].photo). У заказов, оформленных раньше
+   или со старой версии сайта, её нет — тогда ищем фото в каталоге: встроенные товары в js/data.js на сайте,
+   добавленные — в catalog_state. */
+const absolute = (path: string) => { try { return new URL(path, SHOP_URL).href; } catch { return ""; } };
+const PHOTO_EXPR = String.raw`(?:img\("([^"]+)"\)|"([^"]+)")`; // img("2") или "1-pants.jpg"
+const photoPath = (m: RegExpMatchArray, i: number) => (m[i] ? `img/products/${m[i]}.jpg` : m[i + 1]);
+
+let catalogPhotos: { at: number; map: Map<string, string> } | null = null;
+/** "id|#ЦВЕТ" и "id" → полная ссылка на фото. Кэш на 10 минут. */
+async function loadCatalogPhotos() {
+  if (catalogPhotos && Date.now() - catalogPhotos.at < 600_000) return catalogPhotos.map;
+  const map = new Map<string, string>();
+  try {
+    const source = await (await fetch(absolute("js/data.js"))).text();
+    for (const block of source.split(/(?=\{\s*id:\s*\d+,)/).slice(1)) {
+      const id = /^\{\s*id:\s*(\d+)/.exec(block)?.[1];
+      const main = new RegExp(String.raw`\bphoto:\s*` + PHOTO_EXPR).exec(block);
+      if (!id || !main) continue;
+      map.set(id, absolute(photoPath(main, 1)));
+      const colors = /colorPhotos:\s*\{([^}]*)\}/.exec(block)?.[1] ?? "";
+      for (const c of colors.matchAll(new RegExp(String.raw`"(#[0-9A-Fa-f]{6})":\s*` + PHOTO_EXPR, "g")))
+        map.set(`${id}|${c[1].toUpperCase()}`, absolute(photoPath(c, 2)));
+    }
+  } catch (e) { console.error("Фото встроенных товаров (js/data.js):", e); }
+  try {
+    const { data } = await db.from("catalog_state").select("data").eq("id", 1).maybeSingle();
+    for (const p of (data?.data?.products ?? []) as Json[]) {
+      const colors = (Array.isArray(p.colors) ? p.colors : []).filter((c: Json) => c?.hex && c?.image);
+      if (!p.num || !colors.length) continue;
+      map.set(String(p.num), absolute(colors[0].image));
+      for (const c of colors) map.set(`${p.num}|${String(c.hex).toUpperCase()}`, absolute(c.image));
+    }
+  } catch (e) { console.error("Фото добавленных товаров (catalog_state):", e); }
+  catalogPhotos = { at: Date.now(), map };
+  return map;
+}
+
+async function photoUrls(items: Json[]) {
+  const catalog = items.some((l) => !String(l.photo ?? "").startsWith("https://")) ? await loadCatalogPhotos() : null;
+  const urls = items.map((l) => {
+    if (typeof l.photo === "string" && l.photo.startsWith("https://")) return l.photo;
+    return catalog?.get(`${l.id}|${String(l.color ?? "").toUpperCase()}`) ?? catalog?.get(String(l.id)) ?? "";
+  });
+  return [...new Set(urls.filter((u) => u.startsWith("https://")))].slice(0, 4);
+}
+
+/** Фото отправляем одновременно, а не по очереди: Instagram сам скачивает каждое, и так заметно быстрее */
 async function sendPhotos(to: string, items: Json[]) {
-  const urls = [...new Set(items.map((l) => String(l.photo ?? "")).filter((u) => u.startsWith("https://")))].slice(0, 4);
-  for (const url of urls) await ig({ recipient: { id: to }, message: { attachment: { type: "image", payload: { url } } } });
+  const urls = await photoUrls(items);
+  await Promise.all(urls.map((url) => ig({ recipient: { id: to }, message: { attachment: { type: "image", payload: { url } } } })));
 }
 
 /** Покупатель нажал на заказ: фото, дата, состав, статус. Запоминаем — следующие сообщения уйдут менеджеру по нему.
@@ -250,7 +328,8 @@ async function chooseOrder(to: string, userId: number, orderId: number, accepted
     .eq("id", orderId).eq("user_id", userId).maybeSingle();
   if (!o || !ACTIVE.includes(o.status)) return say(to, "Этот заказ уже завершён. Нажмите «📦 Мои заказы», чтобы увидеть актуальные.", [Q_ORDERS]);
   const items = itemsOf(o);
-  await sendPhotos(to, items);
+  await Promise.all([sendPhotos(to, items), OPEN.includes(o.status)
+    ? db.from("bot_chat_state").upsert({ telegram_id: userId, order_id: o.id, updated_at: new Date().toISOString() }) : null]);
   const lines = items.map((l) => `• ${l.name} — ${String(l.colorName ?? "").toLowerCase()}, размер ${l.size}${Number(l.qty) > 1 ? `, ${l.qty} шт.` : ""}`);
   let text = `${accepted ? "✅ Заказ принят! " : "🛍 "}Ваш заказ от ${day(o.created_at)}\n\n${lines.join("\n")}\n\nСумма: ${rub(o.total)}\nСтатус: ${STATUS[o.status] ?? o.status}`;
   if (o.status === "awaiting_payment" && o.payment_details) {
@@ -259,7 +338,6 @@ async function chooseOrder(to: string, userId: number, orderId: number, accepted
     text += "\n\nПосле оплаты пришлите сюда, пожалуйста, чек — фото или скриншот.";
   }
   if (OPEN.includes(o.status)) {
-    await db.from("bot_chat_state").upsert({ telegram_id: userId, order_id: o.id, updated_at: new Date().toISOString() });
     text += "\n\n✍️ Есть вопрос? Просто напишите сюда — менеджер ответит в этом чате. Закончили — нажмите «Закрыть чат».";
     return say(to, text, [Q_CLOSE, Q_ORDERS]);
   }
@@ -267,14 +345,17 @@ async function chooseOrder(to: string, userId: number, orderId: number, accepted
   return say(to, text, [Q_ORDERS]);
 }
 
-/** Картинка из директа → base64 для чата заказа. null — не скачалась или больше 3 МБ. */
+const FILE_TYPES = ["image/jpeg", "image/png", "image/webp", "application/pdf"]; // как в Telegram-боте и чате на сайте
+const EXT: Record<string, string> = { "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp", "application/pdf": "pdf" };
+
+/** Фото или PDF из директа → base64 для чата заказа. null — не скачался, не тот формат или больше 3 МБ. */
 async function download(url: string) {
   const response = await fetch(url).catch(() => null);
-  const type = (response?.headers.get("content-type") ?? "").split(";")[0];
-  if (!response?.ok || !["image/jpeg", "image/png", "image/webp"].includes(type)) return null;
+  const type = (response?.headers.get("content-type") ?? "").split(";")[0].trim();
+  if (!response?.ok || !FILE_TYPES.includes(type)) return null;
   const bytes = new Uint8Array(await response.arrayBuffer());
   if (bytes.length > MAX_FILE) return null;
-  return { name: `фото.${type.split("/")[1] === "jpeg" ? "jpg" : type.split("/")[1]}`, type, data: encodeBase64(bytes) };
+  return { name: `${type === "application/pdf" ? "файл" : "фото"}.${EXT[type]}`, type, data: encodeBase64(bytes) };
 }
 
 const NO_ORDER = "Написать менеджеру по заказу можно, когда он подтвердит заказ — обычно это быстро 🙂\n\n" +
@@ -290,9 +371,11 @@ const ORDER_WORDS = /^(📦\s*)?мои заказы/i;
 
 /** Сообщение покупателя в директе */
 async function handle(igsid: string, m: Json) {
-  const me = await customer(igsid);
   const payload: string = m.quick_reply?.payload ?? m.payload ?? "";
   const text: string = String(m.text ?? "").trim();
+  // команда боту — сразу «печатает…»; обычное сообщение может читать менеджер, там бот молчит
+  if (payload || ORDER_WORDS.test(text) || SHOP_WORDS.test(text)) typing(igsid);
+  const me = await customer(igsid);
 
   if (payload === "ORDERS" || ORDER_WORDS.test(text)) return sendOrders(igsid, me.id);
   const orderId = Number(/^ORDER:(\d+)$/.exec(payload)?.[1]);
@@ -310,11 +393,15 @@ async function handle(igsid: string, m: Json) {
     if (me.isNew) return greet(igsid, me.id);
     return;
   }
-  const image = (Array.isArray(m.attachments) ? m.attachments : []).find((a: Json) => a?.type === "image" && a.payload?.url);
+  const attachment = (Array.isArray(m.attachments) ? m.attachments : [])
+    .find((a: Json) => ["image", "file"].includes(a?.type) && a.payload?.url);
   let file: { name: string; type: string; data: string } | null = null;
-  if (image) {
-    file = await download(image.payload.url);
-    if (!file) return say(igsid, "Фото не получилось передать менеджеру. Пришлите, пожалуйста, скриншот поменьше.");
+  if (attachment) {
+    file = await download(attachment.payload.url);
+    if (!file) {
+      return say(igsid, attachment.type === "image" ? "Фото не получилось передать менеджеру. Пришлите, пожалуйста, скриншот поменьше."
+        : "Такой файл не получится передать. Пришлите, пожалуйста, фото, скриншот или PDF до 3 МБ.");
+    }
   }
   if (!text && !file) return; // стикер, реакция, видео — в заказ не передаём
   const { data, error } = await db.rpc("bot_customer_message", {
@@ -425,6 +512,7 @@ Deno.serve(async (request) => {
       console.log("Сообщение от", igsid, String(m.text ?? "[файл]").slice(0, 40));
       try { await handle(igsid, m); } catch (err) { console.error(err); }
     }
+    await Promise.all(background.splice(0));
   })();
   // Instagram ждёт ответа быстро, иначе повторит уведомление — отвечаем сразу, работаем после
   await later(work);
