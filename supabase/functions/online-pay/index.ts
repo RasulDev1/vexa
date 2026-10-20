@@ -8,6 +8,9 @@
 //   GET ?order=…&sig=…             — покупатель открыл эту ссылку: функция открывает ему страницу оплаты Stripe;
 //   GET ?done=…&sig=…              — Stripe вернул покупателя после оплаты: функция отмечает заказ оплаченным
 //                                    и отправляет покупателя в магазин;
+//   { action: "auto_accept", order_id } — от базы (триггер orders_auto_accept, supabase-auto-accept.sql): покупатель выбрал
+//                                    онлайн-оплату → заказ принимается сам, ссылка на оплату сразу уходит ему в чат. Подпись — секрет
+//                                    из таблицы shop_settings (заголовок x-auto-accept). Не вышло — заказ остаётся «новым» для менеджера;
 //   { action: "create", order_id } — от покупателя: создаёт страницу оплаты на сумму заказа из базы и возвращает ссылку;
 //   { action: "check", order_id }  — от покупателя, когда он вернулся со страницы оплаты: спрашивает Stripe и отмечает оплату;
 //   событие Stripe checkout.session.completed — перепроверяет оплату в Stripe и отмечает заказ оплаченным.
@@ -52,7 +55,7 @@ type Json = any;
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, apikey, content-type, x-client-info, x-telegram-init-data, x-staff-token, x-ig-token",
+  "Access-Control-Allow-Headers": "authorization, apikey, content-type, x-client-info, x-telegram-init-data, x-staff-token, x-ig-token, x-auto-accept",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 const answer = (body: Json, status = 200) =>
@@ -300,6 +303,17 @@ Deno.serve(async (req) => {
   if (!Number.isInteger(orderId) || orderId <= 0) return answer({ error: "bad_order" }, 400);
   try {
     if (body.action === "demo_create") return answer(await demoCreate(orderId, Number(body.amount)));
+    if (body.action === "auto_accept") {
+      const { data: config } = await admin.from("shop_settings").select("auto_secret").eq("id", 1).maybeSingle();
+      const secret = req.headers.get("x-auto-accept") ?? "";
+      if (!secret || secret !== config?.auto_secret) return answer({ error: "denied" }, 403);
+      const order = await orderById(orderId);
+      if (!order || order.status !== "new") return answer({ ok: false, skipped: "status" });
+      if (!allowed(order.user_id)) return answer({ ok: false, skipped: "test_only" }); // тестовый ключ: заказ примет менеджер
+      const { data: done, error } = await admin.rpc("order_auto_accept", { p_id: orderId, p_text: await payLink(orderId) });
+      if (error) { console.error("order_auto_accept:", error); throw new Error("db"); }
+      return answer({ ok: Boolean(done) });
+    }
     if (body.action === "link") {
       if (!(await isStaff(req))) return answer({ error: "denied" }, 403);
       const order = await orderById(orderId);

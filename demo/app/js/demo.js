@@ -323,7 +323,8 @@ function updateOrder(db, ctx, row, patch) {
     // запись в историю — как orders_log_events
     const actor = ctx.actor;
     const quote = (t) => (String(t || "").trim() ? `: «${String(t).trim()}»` : "");
-    const body = row.status === "awaiting_payment" && old.status === "new" ? "Принят, покупателю отправлены реквизиты для оплаты"
+    const body = row.status === "awaiting_payment" && old.status === "new"
+      ? (actor ? "Принят, покупателю отправлены реквизиты для оплаты" : "Принят автоматически, покупателю отправлены реквизиты для оплаты")
       : row.status === "cancelled" ? "Отказ" + quote(row.manager_note)
       : row.status === "paid" ? `Оплачен${row.payment_method ? " " + WAY[row.payment_method] : ""}${row.paid_amount != null ? ": " + rub(row.paid_amount) : ""}`
       : row.status === "delivered" && ["return_requested", "return_approved"].includes(old.status) ? "В возврате отказано" + quote(row.return_declined)
@@ -356,7 +357,16 @@ function insertOrder(db, ctx, values) {
   db.orders.push(row);
   addEvent(db, row.id, ctx.staffSide ? ctx.actor : "Покупатель", "Заказ оформлен на " + rub(row.total));
   notify([STAFF_TOPIC, userTopic(row.user_id)], { id: row.id, op: "insert" });
+  if (!ctx.staffSide) autoAccept(db, ctx, row);
   return row;
+}
+
+/** Как триггер orders_auto_accept (supabase-auto-accept.sql): заказ принимается сам, способ оплаты покупатель выбрал при оформлении.
+    Наличные и оплата при получении — сразу текст, онлайн — сразу ссылка на оплату. Менеджер в этом не участвует. */
+const OFFLINE_PAY = { cash: "Оплата наличными при самовывозе", cod: "Оплата при получении. Возврат платный" };
+function autoAccept(db, ctx, row) {
+  const way = /оплата наличными/.test(row.delivery_way) ? "cash" : /оплата при получении/.test(row.delivery_way) ? "cod" : "online";
+  updateOrder(db, { ...ctx, staff: null, actor: null }, row, { status: "awaiting_payment", payment_details: way === "online" ? payUrl(row.id) : OFFLINE_PAY[way] });
 }
 
 /* ---------- Таблицы и представления для from() ---------- */
