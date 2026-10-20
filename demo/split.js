@@ -17,18 +17,15 @@
   const write = (key, value) => { try { localStorage.setItem(key, value); } catch {} };
 
   /* ---------- Раскладка ---------- */
-  const guide = $("guide"), steps = $("steps");
+  const steps = $("steps");
   let view = read(VIEW_KEY) || "both";
-  if (view === "guide") view = "both";        // «Инструкцию» не запоминаем: демо открывается сразу с телефоном и CRM
+  if (view === "guide") view = "both";        // старое сохранённое значение
   function setView(next, save = true) {
     view = next;
-    if (save && view !== "guide") write(VIEW_KEY, view);
-    const reading = view === "guide";
-    guide.hidden = !reading; stage.hidden = reading; steps.hidden = reading;
-    if (!reading) for (const v of guide.querySelectorAll("video")) v.pause();
+    if (save) write(VIEW_KEY, view);
     // На телефоне двух экранов рядом нет: «оба» показывает магазин
     const shown = narrow.matches && view === "both" ? "shop" : view;
-    if (!reading) stage.dataset.view = shown;
+    stage.dataset.view = shown;
     for (const b of document.querySelectorAll("[data-view]")) {
       if (b.tagName === "BUTTON") b.setAttribute("aria-pressed", String(b.dataset.view === shown));
     }
@@ -39,16 +36,6 @@
     if (b) setView(b.dataset.view);
   });
   narrow.addEventListener("change", () => setView(view, false));
-
-  // «Инструкция»: на узком экране видео переключаются вкладками, на широком все три рядом
-  const gRow = $("guideRow");
-  guide.querySelector(".guide-tabs").addEventListener("click", (e) => {
-    const b = e.target.closest("button[data-g]");
-    if (!b) return;
-    gRow.dataset.active = b.dataset.g;
-    for (const t of guide.querySelectorAll(".guide-tabs button")) t.setAttribute("aria-pressed", String(t === b));
-    for (const v of guide.querySelectorAll("video")) v.pause();
-  });
 
   function fit() {
     if (narrow.matches) {
