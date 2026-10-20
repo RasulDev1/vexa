@@ -484,6 +484,7 @@ async function fromDatabase(request: Request, secret: string) {
   const { data } = await db.from("ig_settings").select("hook_secret").eq("id", 1).maybeSingle();
   if (!data?.hook_secret || data.hook_secret !== secret) return new Response("forbidden", { status: 403 });
   const body = await request.json().catch(() => null);
+  token().catch(() => {}); // «будильник» заодно прогревает токен
   // сообщения отправляем уже после ответа базе — она не ждёт дольше нескольких секунд
   const work = (body?.message ? managerMessage(Number(body.message))
     : body?.order ? orderStatus(Number(body.order), String(body.from ?? "")) : Promise.resolve())
@@ -491,6 +492,8 @@ async function fromDatabase(request: Request, secret: string) {
   await later(work);
   return new Response("ok");
 }
+
+token().catch(() => {}); // прогрев токена при запуске, чтобы первое сообщение не ждало базу
 
 /** Работа после ответа: Edge Runtime доделает её сам; без него — ждём здесь */
 async function later(work: Promise<unknown>) {
