@@ -142,23 +142,20 @@ a { color: inherit; }
   transform-origin: top left;
 }
 
-/* ---------- Инструкция: три видео ---------- */
-.guide { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 24px var(--gutter) 32px; }
+/* ---------- Инструкция: три видео на одном экране ---------- */
+.guide { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 14px var(--gutter); }
 .guide[hidden], .stage[hidden], .steps[hidden] { display: none; }
-.guide-in { max-width: 1040px; margin: 0 auto; }
-.guide h1 { margin: 0 0 8px; font: 800 26px/1.15 Unbounded, Manrope, sans-serif; }
-.guide-lead { margin: 0 0 24px; color: var(--muted); font-size: 15px; max-width: 640px; }
-.g-item {
-  display: grid; grid-template-columns: minmax(0, 300px) minmax(0, 1fr); gap: 28px; align-items: center;
-  padding: 20px; margin-bottom: 20px; border-radius: 18px; background: var(--surface); border: 1px solid var(--line);
-}
-.g-item.wide { grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); }
-.g-media video { display: block; width: 100%; height: auto; border-radius: 14px; background: #0E2A47; }
-.g-media.phone-v video { max-height: 560px; width: auto; max-width: 100%; margin: 0 auto; aspect-ratio: 430 / 1032; }
-.g-n { display: inline-grid; place-items: center; width: 30px; height: 30px; border-radius: 50%; background: var(--nav); color: var(--accent); font-weight: 800; font-size: 14px; }
-.g-text h2 { margin: 10px 0 12px; font-size: 20px; }
-.g-text ul { margin: 0; padding-left: 20px; display: grid; gap: 8px; color: var(--muted); font-size: 14.5px; }
-.g-text li::marker { color: var(--accent); }
+.guide-in { height: 100%; display: flex; flex-direction: column; justify-content: center; max-width: 1360px; margin: 0 auto; }
+.guide-tabs { display: none; }
+.guide-row { display: flex; gap: 20px; align-items: flex-start; justify-content: center; min-height: 0; }
+.g-fig { margin: 0; min-width: 0; display: flex; flex-direction: column; gap: 10px; --vh: min(calc(100dvh - 215px), 640px); }
+.g-fig figcaption { display: grid; gap: 2px; font-size: 13px; color: var(--muted); line-height: 1.35; }
+.g-fig figcaption b { color: var(--ink); font-size: 14.5px; }
+.g-fig video { display: block; height: var(--vh); width: auto; max-width: 100%; border-radius: 14px; background: #0E2A47; box-shadow: 0 14px 36px rgba(14, 42, 71, .18); }
+.g-fig:not(.wide) { flex: 0 1 calc(var(--vh) * .417); }
+.g-fig:not(.wide) video { width: calc(var(--vh) * .417); object-fit: contain; }
+.g-fig.wide { flex: 1 1 0; }
+.g-fig.wide video { width: 100%; height: auto; max-height: var(--vh); }
 
 /* ---------- Телефон и планшет: один экран за раз, без рамки телефона ---------- */
 @media (max-width: 899px) {
@@ -171,9 +168,17 @@ a { color: inherit; }
   .views button { flex: 1 1 0; }
   .views button[data-view="both"] { display: none; }
   .steps { display: none; }
-  .g-item, .g-item.wide { grid-template-columns: 1fr; gap: 16px; padding: 14px; }
-  .g-media.phone-v video { max-height: 480px; }
-  .guide h1 { font-size: 21px; }
+  .guide { padding: 12px var(--gutter); }
+  .guide-in { justify-content: flex-start; gap: 12px; }
+  .guide-tabs { display: flex; gap: 6px; }
+  .guide-tabs button { flex: 1; border: 1px solid var(--line); background: var(--surface); border-radius: 999px; padding: 8px 6px; font-weight: 600; cursor: pointer; }
+  .guide-tabs button[aria-pressed="true"] { background: var(--nav); color: var(--accent); border-color: var(--nav); }
+  .guide-row { display: block; }
+  .g-fig { --vh: min(calc(100dvh - 300px), 520px); align-items: center; }
+  .g-fig, .g-fig.wide { display: none; }
+  .guide-row[data-active="ig"] [data-g="ig"], .guide-row[data-active="tg"] [data-g="tg"], .guide-row[data-active="crm"] [data-g="crm"] { display: flex; }
+  .g-fig figcaption { text-align: center; }
+  .g-fig.wide video { width: 100%; max-height: none; height: auto; }
   .stage { padding: 0; gap: 0; }
   .stage[data-view="both"] .pane-crm { display: none; }
   .stage .pane-shop { flex: 1 1 auto; }

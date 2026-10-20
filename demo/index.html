@@ -8,7 +8,7 @@
 <meta name="description" content="Живая демо-версия магазина VEXA в Telegram и CRM для сотрудников: слева телефон покупателя, справа CRM. Данные хранятся только в браузере.">
 <!-- Шрифты те же, что у магазина (app/fonts) -->
 <link rel="stylesheet" href="app/css/fonts.css?v=20261016e">
-<link rel="stylesheet" href="split.css?v=20261020a">
+<link rel="stylesheet" href="split.css?v=20261020b">
 <!-- Тема до отрисовки, чтобы страница не мигала: выбор посетителя, по умолчанию светлая -->
 <script>try { document.documentElement.dataset.theme = JSON.parse(localStorage.getItem("vexademo_theme")) === "dark" ? "dark" : "light"; } catch (e) { document.documentElement.dataset.theme = "light"; }</script>
 </head>
@@ -80,53 +80,30 @@
 
 <section class="guide" id="guide" hidden aria-label="Инструкция">
   <div class="guide-in">
-    <h1>Как это работает</h1>
-    <p class="guide-lead">Покупатель пишет вам в Instagram или Telegram, магазин открывается прямо в чате, а заказ и переписка попадают в одну CRM. Три коротких видео — по одному на каждую сторону.</p>
-
-    <article class="g-item">
-      <div class="g-media phone-v"><video controls preload="metadata" playsinline poster="guide/instagram.jpg"><source src="guide/instagram.mp4" type="video/mp4"></video></div>
-      <div class="g-text">
-        <span class="g-n">1</span><h2>Покупатель в Instagram</h2>
-        <ul>
-          <li>Пишет в директ — бот отвечает и присылает личную кнопку «Открыть магазин».</li>
-          <li>Выбирает товар и оформляет заказ, не выходя из Instagram.</li>
-          <li>После принятия заказа бот сам присылает реквизиты и фото товара.</li>
-          <li>Чек и вопросы можно отправлять прямо в чат: менеджер видит их в CRM.</li>
-          <li>Кнопка «Мои заказы» всегда под рукой, а «🛍 Магазин» возвращает в каталог. Начать заново — написать «/start».</li>
-        </ul>
-      </div>
-    </article>
-
-    <article class="g-item">
-      <div class="g-media phone-v"><video controls preload="metadata" playsinline poster="guide/telegram.jpg"><source src="guide/telegram.mp4" type="video/mp4"></video></div>
-      <div class="g-text">
-        <span class="g-n">2</span><h2>Покупатель в Telegram</h2>
-        <ul>
-          <li>Запускает бота командой /start — слева от поля ввода появляется кнопка «Магазин».</li>
-          <li>Магазин открывается мини-приложением внутри Telegram.</li>
-          <li>Статус заказа, реквизиты и ответы менеджера приходят в тот же чат.</li>
-          <li>Заказы из Telegram и Instagram одинаково видны менеджеру и в аналитике.</li>
-        </ul>
-      </div>
-    </article>
-
-    <article class="g-item wide">
-      <div class="g-media"><video controls preload="metadata" playsinline poster="guide/crm.jpg"><source src="guide/crm.mp4" type="video/mp4"></video></div>
-      <div class="g-text">
-        <span class="g-n">3</span><h2>Менеджер в CRM на компьютере</h2>
-        <ul>
-          <li>Новый заказ появляется сразу, без обновления страницы.</li>
-          <li>«Принять» отправляет покупателю реквизиты, «Оплатить» отмечает оплату.</li>
-          <li>Чат с покупателем — общий для Instagram и Telegram: чек приходит сюда, ответ уходит обратно в мессенджер.</li>
-          <li>Клиенты и аналитика собираются автоматически.</li>
-        </ul>
-      </div>
-    </article>
+    <div class="guide-tabs" role="group" aria-label="Видео">
+      <button type="button" data-g="ig" aria-pressed="true">Instagram</button>
+      <button type="button" data-g="tg" aria-pressed="false">Telegram</button>
+      <button type="button" data-g="crm" aria-pressed="false">CRM</button>
+    </div>
+    <div class="guide-row" id="guideRow" data-active="ig">
+      <figure class="g-fig" data-g="ig">
+        <figcaption><b>1 · Покупатель в Instagram</b><span>Пишет в директ, открывает магазин кнопкой, оформляет заказ и оплачивает картой онлайн</span></figcaption>
+        <video controls preload="metadata" playsinline poster="guide/instagram.jpg"><source src="guide/instagram.mp4" type="video/mp4"></video>
+      </figure>
+      <figure class="g-fig" data-g="tg">
+        <figcaption><b>2 · Покупатель в Telegram</b><span>Запускает бота, открывает магазин кнопкой слева от поля ввода, тот же заказ и оплата</span></figcaption>
+        <video controls preload="metadata" playsinline poster="guide/telegram.jpg"><source src="guide/telegram.mp4" type="video/mp4"></video>
+      </figure>
+      <figure class="g-fig wide" data-g="crm">
+        <figcaption><b>3 · Менеджер в CRM на компьютере</b><span>Заказ приходит сам, оплата отмечается сама, чат с покупателем общий для обоих мессенджеров</span></figcaption>
+        <video controls preload="metadata" playsinline poster="guide/crm.jpg"><source src="guide/crm.mp4" type="video/mp4"></video>
+      </figure>
+    </div>
   </div>
 </section>
 
 <p class="disclaimer">Сайт является демонстрационным шаблоном. Все совпадения с реальными брендами случайны</p>
 
-<script src="split.js?v=20261020a"></script>
+<script src="split.js?v=20261020b"></script>
 </body>
 </html>

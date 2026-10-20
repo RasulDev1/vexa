@@ -410,7 +410,7 @@ function myOrderHtml(o) {
       <p class="adm-sub" style="margin-top:6px">Оплата на защищённой странице Stripe. Статус заказа обновится сам.${ONLINE_PAY_TEST_HINT}</p>` : ""}
     ${status === "rejected" && o.message ? `<p class="ord-note">${escapeHtml(o.message)}</p>` : ""}
     ${returnInfoHtml(o)}
-    ${useSupabase && status === "accepted" && details && !offline ? `<p class="adm-sub" style="margin-top:10px">${link ? "Платите по реквизитам? Отправьте чек менеджеру в чат." : "Оплатили? Отправьте чек менеджеру в чат."}</p>` : ""}
+    ${useSupabase && status === "accepted" && details && !offline && !link ? `<p class="adm-sub" style="margin-top:10px">Оплатили? Отправьте чек менеджеру в чат.</p>` : ""}
     ${useSupabase ? chatButtonHtml(o, "customer") : ""}
     ${status === "new" ? `<p class="adm-sub">${hasOrdersBackend ? "Проверяем наличие. Как только всё подтвердим, здесь появятся реквизиты для оплаты." : "Статус заказа уточняйте у менеджера в Telegram."}</p>` : ""}
   </article>`;
