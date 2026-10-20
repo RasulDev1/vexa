@@ -214,6 +214,23 @@ drop trigger if exists orders_status_to_instagram on public.orders;
 create trigger orders_status_to_instagram after update of status on public.orders
   for each row execute function public.orders_status_to_instagram();
 
+-- ---------- 6. «Будильник»: раз в минуту будим функцию instagram-bot ----------
+-- Без него функция засыпает, и первое сообщение после паузы идёт на 1–2 секунды дольше (холодный старт).
+-- Пустой запрос бот принимает как «пинг»: ничего не отправляет, только проверяет секрет по базе.
+create or replace function public.ig_keep_warm()
+returns void language plpgsql security definer set search_path = '' as $$
+begin
+  perform public.ig_notify('{}'::jsonb);
+end $$;
+revoke execute on function public.ig_keep_warm() from public, anon, authenticated;
+
+do $$ begin
+  create extension if not exists pg_cron;
+  perform cron.unschedule(jobid) from cron.job where jobname = 'ig-keep-warm';
+  perform cron.schedule('ig-keep-warm', '* * * * *', 'select public.ig_keep_warm()');
+exception when others then raise notice 'pg_cron недоступен: бот будет просыпаться дольше (%)', sqlerrm;
+end $$;
+
 notify pgrst, 'reload schema';
 
 -- ---------- Проверка: всё должно быть «true» ----------
@@ -222,4 +239,5 @@ select exists (select 1 from pg_proc where proname = 'tg_id_telegram')          
        exists (select 1 from pg_trigger where tgname = 'orders_status_to_instagram') as "статусы заказа приходят в директ",
        exists (select 1 from public.ig_settings)                               as "секрет для бота создан",
        not exists (select 1 from public.ig_users i where not exists
-         (select 1 from public.users u where u.telegram_id = i.user_id))      as "покупатели из Instagram могут оформить заказ";
+         (select 1 from public.users u where u.telegram_id = i.user_id))      as "покупатели из Instagram могут оформить заказ",
+       exists (select 1 from pg_extension where extname = 'pg_cron')                as "будильник включён (pg_cron)";
