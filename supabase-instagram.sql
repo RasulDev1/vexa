@@ -52,6 +52,23 @@ alter table public.ig_users enable row level security;
 alter table public.ig_logins enable row level security;
 alter table public.ig_settings enable row level security;
 
+-- Покупатель из Instagram — такой же пользователь магазина, как из Telegram: без строки в users база не примет заказ
+create or replace function public.ig_users_to_users()
+returns trigger language plpgsql security definer set search_path = '' as $$
+begin
+  insert into public.users (telegram_id, username, first_name)
+  values (new.user_id, new.username, new.name)
+  on conflict (telegram_id) do update set username = excluded.username, first_name = excluded.first_name;
+  return null;
+end $$;
+drop trigger if exists ig_users_to_users on public.ig_users;
+create trigger ig_users_to_users after insert or update of username, name on public.ig_users
+  for each row execute function public.ig_users_to_users();
+-- тем, кто уже написал боту
+insert into public.users (telegram_id, username, first_name)
+select user_id, username, name from public.ig_users
+on conflict (telegram_id) do update set username = excluded.username, first_name = excluded.first_name;
+
 -- ---------- 2. Кто покупатель: Telegram или ссылка из директа ----------
 -- Нынешняя проверка подписи Telegram сохраняется под именем tg_id_telegram (один раз, при первом запуске).
 do $$
@@ -203,4 +220,6 @@ notify pgrst, 'reload schema';
 select exists (select 1 from pg_proc where proname = 'tg_id_telegram')          as "проверка Telegram сохранена",
        exists (select 1 from pg_proc where proname = 'ig_login')                as "вход по ссылке из директа готов",
        exists (select 1 from pg_trigger where tgname = 'orders_status_to_instagram') as "статусы заказа приходят в директ",
-       exists (select 1 from public.ig_settings)                               as "секрет для бота создан";
+       exists (select 1 from public.ig_settings)                               as "секрет для бота создан",
+       not exists (select 1 from public.ig_users i where not exists
+         (select 1 from public.users u where u.telegram_id = i.user_id))      as "покупатели из Instagram могут оформить заказ";
