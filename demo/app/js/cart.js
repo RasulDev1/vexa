@@ -72,6 +72,7 @@ const askSource = () => useSupabase && Boolean(api.customerSourceAnswer) && !sta
 const addressDrafts = {}; // введённый адрес не теряется при переключении способа доставки
 
 export function openCheckout() {
+  if (useSupabase && api.warmPayment && onlinePayOn()) api.warmPayment(); // оплата откроется быстрее
   // ФИО с прошлого заказа на этом устройстве, иначе — имя и фамилия из Telegram
   const saved = storage.get("temp_customer_fio", null) || { last: telegramUser?.last_name || "", first: telegramUser?.first_name || "", middle: "" };
   sheetBody.innerHTML = `<div class="grab"></div><h2 class="p-name">Доставка</h2>
