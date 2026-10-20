@@ -305,7 +305,7 @@ function showOrderPlaced(items, note = "Когда менеджер провер
   sheetBody.innerHTML = `<div class="grab"></div><div class="done">
     <div class="finish" aria-hidden="true"><span></span><span></span><span></span><span></span></div>
     <svg class="check" viewBox="0 0 54 54" aria-hidden="true"><circle cx="27" cy="27" r="27"/><path d="M16 28 L24 36 L39 19"/></svg>
-    <p class="big">Спасибо за заказ!</p>
+    <p class="big">${payNum ? "Заказ принят, осталось оплатить" : "Спасибо за заказ!"}</p>
     <p class="order-lead">Дата оформления: ${orderDate(new Date())}<br>Вы выбрали:</p>
     ${orderItemsHtml({ items })}
     <p class="p-desc">${note}</p>
@@ -370,7 +370,12 @@ async function checkOnlinePay() {
   if (!num || !api.onlinePayCheck) return;
   try {
     const result = await api.onlinePayCheck(num);
-    if (result?.paid) { haptic("success"); toast("Оплата прошла"); }
+    if (result?.paid) {
+      haptic("success");
+      const order = state.myOrders.find((o) => o.num === num);
+      if (order?.items?.length) showOrderPlaced(order.items, "Спасибо! Оплата прошла, заказ оформлен. Менеджер подготовит его к отправке, статус виден во вкладке «Мои заказы».");
+      else toast("Оплата прошла");
+    }
     if (result?.paid || result?.closed || result?.status === "canceled") storage.set(payingKey, 0);
   } catch {}
 }
