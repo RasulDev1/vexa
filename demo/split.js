@@ -17,13 +17,18 @@
   const write = (key, value) => { try { localStorage.setItem(key, value); } catch {} };
 
   /* ---------- Раскладка ---------- */
+  const guide = $("guide"), steps = $("steps");
   let view = read(VIEW_KEY) || "both";
+  if (view === "guide") view = "both";        // «Инструкцию» не запоминаем: демо открывается сразу с телефоном и CRM
   function setView(next, save = true) {
     view = next;
-    if (save) write(VIEW_KEY, view);
+    if (save && view !== "guide") write(VIEW_KEY, view);
+    const reading = view === "guide";
+    guide.hidden = !reading; stage.hidden = reading; steps.hidden = reading;
+    if (!reading) for (const v of guide.querySelectorAll("video")) v.pause();
     // На телефоне двух экранов рядом нет: «оба» показывает магазин
     const shown = narrow.matches && view === "both" ? "shop" : view;
-    stage.dataset.view = shown;
+    if (!reading) stage.dataset.view = shown;
     for (const b of document.querySelectorAll("[data-view]")) {
       if (b.tagName === "BUTTON") b.setAttribute("aria-pressed", String(b.dataset.view === shown));
     }
