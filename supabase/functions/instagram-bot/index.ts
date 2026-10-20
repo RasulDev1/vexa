@@ -526,8 +526,11 @@ Deno.serve(async (request) => {
       if (!igsid || igsid === String(e.account) || e.message?.is_echo || e.message?.is_deleted) continue;
       const m = e.message ?? (e.postback ? { text: e.postback.title, payload: e.postback.payload } : null);
       if (!m) continue;
+      // замеры: сколько Instagram доставлял сообщение до нас (по его метке времени) и сколько бот готовил ответ
+      const started = Date.now();
       console.log("Сообщение от", igsid, String(m.text ?? "[файл]").slice(0, 40));
       try { await handle(igsid, m); } catch (err) { console.error(err); }
+      console.log(`Время: Instagram доставил за ${e.timestamp ? started - Number(e.timestamp) : "?"} мс, бот ответил за ${Date.now() - started} мс`);
     }
     await Promise.all(background.splice(0));
   })();
