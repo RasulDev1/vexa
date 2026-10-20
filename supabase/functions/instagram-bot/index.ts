@@ -314,8 +314,12 @@ async function photoUrls(items: Json[]) {
     if (typeof l.photo === "string" && l.photo.startsWith("https://")) return l.photo;
     return catalog?.get(`${l.id}|${String(l.color ?? "").toUpperCase()}`) ?? catalog?.get(String(l.id)) ?? "";
   });
-  return [...new Set(urls.filter((u) => u.startsWith("https://")))].slice(0, 4);
+  return [...new Set(urls.filter((u) => u.startsWith("https://")).map(lightPhoto))].slice(0, 4);
 }
+
+/** Фото встроенных товаров у сайта есть и в лёгком виде (img/products/6-thumb.jpg, ~25 КБ вместо ~90): в чате хватает,
+    а Instagram скачивает такой файл заметно быстрее. Чужие ссылки (добавленные товары) оставляем как есть. */
+const lightPhoto = (url: string) => url.replace(/(\/img\/products\/[\w-]+?)(?<!-thumb)\.jpg(?=$|\?)/, "$1-thumb.jpg");
 
 /** Фото отправляем одновременно, а не по очереди: Instagram сам скачивает каждое, и так заметно быстрее */
 async function sendPhotos(to: string, items: Json[]) {
