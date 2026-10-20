@@ -268,6 +268,7 @@ async function payInWindow(order, items) {
     <p class="p-desc">К оплате ${formatPrice(hold.total)}. Товар зарезервирован на 30 минут: заказ оформится сразу после оплаты.</p>
     <div id="payBox"></div>
     <button class="ghost" id="payCancel" style="width:100%">Отмена</button>`;
+  openSheet("pay"); // другой экран: «Подтвердить заказ» в Telegram и в окне пропадает, пока идёт оплата
   sheetBody.onclick = (e) => {
     if (e.target.id !== "payCancel") return;
     unmount();
