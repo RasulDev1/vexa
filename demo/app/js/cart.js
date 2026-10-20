@@ -238,31 +238,35 @@ function sendOrderToManager(order) {
 async function payInWindow(order, items) {
   const hold = await api.holdOrder(order).catch((error) => { if (error.code === "no_function") return null; throw error; });
   if (!hold) return "fallback";
-  let payment;
+  let payment, unmount = () => {};
   try { payment = await api.preparePayment(hold.id); }
   catch (error) {
     api.holdCancel(hold.id);
     if (["not_configured", "provider", "no_function", "server"].includes(error.code)) return "fallback";
     throw error;
   }
+  let thanked = false;
+  // Форма сообщает об оплате сразу (orderNum пуст), номер заказа приходит вторым вызовом, когда оплату подтвердил сервер
   const paid = (orderNum) => {
+    if (orderNum) rememberOrder({ ...order, num: orderNum, date: new Date().toISOString(), status: "paid" });
+    if (thanked) { renderMyOrders(true); return; } // «Спасибо» уже показано, только обновляем «Мои заказы»
+    thanked = true;
+    unmount(); // форма оплаты исчезает сразу, второй кнопки оплаты нет
     refreshCatalog();
     if (source && askSource()) {
       storage.set("temp_source_sent", true);
       api.customerSourceAnswer(source).catch(() => {});
     }
-    if (orderNum) rememberOrder({ ...order, num: orderNum, date: new Date().toISOString(), status: "paid" });
     state.cart = [];
     saveCart();
     renderMyOrders(true); // настоящий статус и сумма оплаты — из базы
-    showOrderPlaced(items, "Оплата прошла, заказ оформлен. Менеджер подготовит его к отправке, статус виден во вкладке «Мои заказы».");
+    showOrderPlaced(items, "Спасибо! Оплата прошла, заказ оформлен. Менеджер подготовит его к отправке, статус виден во вкладке «Мои заказы».");
   };
   if (payment.paid) return paid(payment.orderId);
   sheetBody.innerHTML = `<div class="grab"></div><h2 class="p-name">Оплата заказа</h2>
     <p class="p-desc">К оплате ${formatPrice(hold.total)}. Товар зарезервирован на 30 минут: заказ оформится сразу после оплаты.</p>
     <div id="payBox"></div>
     <button class="ghost" id="payCancel" style="width:100%">Отмена</button>`;
-  let unmount = () => {};
   sheetBody.onclick = (e) => {
     if (e.target.id !== "payCancel") return;
     unmount();
