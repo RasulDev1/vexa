@@ -71,12 +71,15 @@ async function saveToken(accessToken: string, expiresIn: number) {
 
 /** Instagram вернул на функцию после «Разрешить» по ссылке подключения: меняем код на токен на 60 дней */
 async function connect(url: URL): Promise<Response> {
-  const page = (text: string, status = 200) =>
-    new Response(`<!DOCTYPE html><meta charset="utf-8"><meta name="viewport" content="width=device-width"><body style="font:18px system-ui;padding:32px">${text}</body>`,
-      { status, headers: { "Content-Type": "text/html; charset=utf-8" } });
+  // Supabase отдаёт HTML из функций как простой текст, поэтому итог показывает страница магазина ig-connected.html
+  const page = (text: string, _status = 200) => {
+    const target = new URL("ig-connected.html", SHOP_URL.endsWith("/") ? SHOP_URL : SHOP_URL + "/");
+    target.searchParams.set("msg", text);
+    return Response.redirect(target.toString(), 303);
+  };
   if (url.searchParams.get("error")) return page(`Instagram не дал доступ: ${url.searchParams.get("error_description") ?? url.searchParams.get("error")}`, 400);
   // ссылку подключения дополняют &state=IG_VERIFY_TOKEN — так чужой аккаунт не подменит магазин
-  if (!VERIFY_TOKEN || url.searchParams.get("state") !== VERIFY_TOKEN) return page("Ссылка подключения неверная: в конце ссылки должно быть &state= и ваш IG_VERIFY_TOKEN.", 403);
+  if (!VERIFY_TOKEN || (url.searchParams.get("state") ?? "").trim().replaceAll(" ", "+") !== VERIFY_TOKEN) return page("Ссылка подключения неверная: в конце ссылки должно быть &state= и ваш IG_VERIFY_TOKEN.", 403);
   if (!APP_ID || !APP_SECRET) return page("В Supabase не заданы секреты IG_APP_ID и IG_APP_SECRET.", 500);
   const form = new URLSearchParams({ client_id: APP_ID, client_secret: APP_SECRET, grant_type: "authorization_code",
     redirect_uri: REDIRECT_URL, code: (url.searchParams.get("code") ?? "").replace(/#_$/, "") });
