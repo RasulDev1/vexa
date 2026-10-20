@@ -138,6 +138,8 @@ async function ig(body: Json): Promise<Json> {
 const sent = (result: Json) => Boolean(result?.message_id);
 /** «Печатает…» в директе сразу, пока бот собирает ответ: покупатель видит, что бот уже отвечает */
 const typing = (to: string) => ig({ recipient: { id: to }, sender_action: "typing_on" }).catch(() => null);
+/** «Прочитано» — сразу, как только бот получил команду */
+const markSeen = (to: string) => ig({ recipient: { id: to }, sender_action: "mark_seen" }).catch(() => null);
 
 /** Текст; длинный — несколькими сообщениями. Кнопки быстрого ответа — под последним. */
 async function say(to: string, text: string, quick?: Json[]) {
@@ -393,7 +395,7 @@ async function handle(igsid: string, m: Json) {
   const payload: string = m.quick_reply?.payload ?? m.payload ?? "";
   const text: string = String(m.text ?? "").trim();
   // команда боту — сразу «печатает…»; обычное сообщение может читать менеджер, там бот молчит
-  if (payload || ORDER_WORDS.test(text) || SHOP_WORDS.test(text)) typing(igsid);
+  if (payload || ORDER_WORDS.test(text) || SHOP_WORDS.test(text)) { markSeen(igsid); typing(igsid); }
   const tc = Date.now();
   const me = await customer(igsid);
   console.log(`  шаг: покупатель ${Date.now() - tc} мс`);
