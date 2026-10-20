@@ -249,6 +249,43 @@ export const supabaseApi = {
   /** Менеджер: постоянная ссылка на оплату заказа картой — CRM подставляет её в реквизиты */
   onlinePayLink: (num) => payFunction("link", num),
 
+  /* ---------- Оплата в окне магазина (supabase-embedded-pay.sql): заказа нет, пока не оплачено ---------- */
+  /** Резерв товара под оплату: { id, total }. Ошибки: conflict (товар закончился), no_function (в базе нет функции), server */
+  async holdOrder(order) {
+    if (!(await supabaseLogin())) throw { code: "unauthorized", reason: loginError };
+    const { data, error, status } = await db().rpc("order_hold", {
+      p_items: order.items, p_total: order.total, p_name: order.name, p_phone: order.phone, p_way: order.way, p_addr: order.addr || "",
+    });
+    if (!error) return data;
+    const reason = /hold:([a-z_]+)/.exec(error.message || "")?.[1];
+    throw { code: reason === "conflict" ? "conflict" : error.code === "PGRST202" || status === 404 ? "no_function" : reason || "server", raw: error };
+  },
+  /** Покупатель закрыл окно оплаты с отменой: резерв снимается */
+  holdCancel: (holdId) => db().rpc("order_hold_cancel", { p_id: holdId }).then(() => {}, () => {}),
+  /** Демо: вместо формы Stripe — похожая форма с подставленной тестовой картой; оплата создаёт заказ, как hold_confirm */
+  async preparePayment(holdId) {
+    return {
+      async mount(element, onPaid, { total } = {}) {
+        element.innerHTML = `<div class="mock-pay">
+          <label class="field"><span>Номер карты</span><input id="mpCard" inputmode="numeric" autocomplete="off" value="4242 4242 4242 4242"></label>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+            <label class="field"><span>Срок</span><input id="mpExp" autocomplete="off" value="12 / 30"></label>
+            <label class="field"><span>CVC</span><input id="mpCvc" autocomplete="off" value="123"></label></div>
+          <button class="primary" id="mpPay">Оплатить ${total || ""}</button>
+          <p class="adm-sub" style="margin-top:6px">Демо: тестовая карта уже подставлена, деньги не списываются.</p></div>`;
+        const button = element.querySelector("#mpPay");
+        button.onclick = async () => {
+          button.disabled = true;
+          button.textContent = "Оплачиваем…";
+          await new Promise((resolve) => setTimeout(resolve, 900));
+          const { data } = await db().rpc("demo_hold_confirm", { p_id: holdId });
+          onPaid(data);
+        };
+        return () => { element.innerHTML = ""; };
+      },
+    };
+  },
+
   /* ---------- CRM (supabase-crm.sql): история заказа, возвраты, закупочные цены, источник клиента, выгрузка ---------- */
   orderHistory: (num) => rpc("order_history", { p_id: num }),
   returnRequest: (num, reason) => rpc("order_return_request", { p_id: num, p_reason: reason }),

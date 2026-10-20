@@ -8,6 +8,14 @@
 //   GET ?order=…&sig=…             — покупатель открыл эту ссылку: функция открывает ему страницу оплаты Stripe;
 //   GET ?done=…&sig=…              — Stripe вернул покупателя после оплаты: функция отмечает заказ оплаченным
 //                                    и отправляет покупателя в магазин;
+//   { action: "auto_accept", order_id } — от базы (триггер orders_auto_accept, supabase-auto-accept.sql): покупатель выбрал
+//                                    онлайн-оплату → заказ принимается сам, ссылка на оплату сразу уходит ему в чат. Подпись — секрет
+//                                    из таблицы shop_settings (заголовок x-auto-accept). Не вышло — заказ остаётся «новым» для менеджера;
+//   { action: "embedded", hold_id } — от покупателя (supabase-embedded-pay.sql): форма оплаты Stripe прямо в окне магазина.
+//                                    Заказа ещё нет, только резерв товара; заказ создаётся после оплаты. Возвращает client_secret и
+//                                    publishable_key (секрет STRIPE_PUBLISHABLE_KEY, pk_test_…); нет ключа — not_configured, магазин
+//                                    откатывается на прежний порядок (заказ, потом ссылка);
+//   { action: "hold_check", hold_id } — от покупателя, когда форма сообщила об оплате: спрашивает Stripe, создаёт заказ.
 //   { action: "create", order_id } — от покупателя: создаёт страницу оплаты на сумму заказа из базы и возвращает ссылку;
 //   { action: "check", order_id }  — от покупателя, когда он вернулся со страницы оплаты: спрашивает Stripe и отмечает оплату;
 //   событие Stripe checkout.session.completed — перепроверяет оплату в Stripe и отмечает заказ оплаченным.
@@ -19,6 +27,7 @@
 //
 // Секреты функции (Edge Functions → Secrets):
 //   STRIPE_SECRET_KEY  — секретный ключ Stripe; тестовый начинается с sk_test_
+//   STRIPE_PUBLISHABLE_KEY — публичный ключ Stripe (pk_test_…), нужен для формы оплаты в окне магазина
 //   PAY_TESTERS        — Telegram ID через запятую: кто может платить, пока ключ тестовый. Без него тестовый
 //                        ключ не принимает оплату ни от кого — иначе покупатель «оплатил» бы заказ тестовой картой.
 //                        * — тестовую оплату может пройти любой покупатель (демо-магазин)
@@ -32,6 +41,8 @@
 import { createClient } from "jsr:@supabase/supabase-js@2";
 
 const SECRET_KEY = Deno.env.get("STRIPE_SECRET_KEY") ?? "";
+const PUBLISHABLE_KEY = Deno.env.get("STRIPE_PUBLISHABLE_KEY") ?? "";
+const EMBEDDED_VERSION = "2025-03-31.basil"; // с ним ui_mode=embedded и страница Stripe.js /basil/ работают вместе
 const SHOP_URL = Deno.env.get("SHOP_URL") ?? "https://rasuldev1.github.io/vexa/";
 const RETURN_URL = Deno.env.get("PAY_RETURN_URL") ?? "";
 const BOT_TOKEN = Deno.env.get("TELEGRAM_BOT_TOKEN") ?? "";
@@ -52,20 +63,21 @@ type Json = any;
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, apikey, content-type, x-client-info, x-telegram-init-data, x-staff-token, x-ig-token",
+  "Access-Control-Allow-Headers": "authorization, apikey, content-type, x-client-info, x-telegram-init-data, x-staff-token, x-ig-token, x-auto-accept",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 const answer = (body: Json, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { ...CORS, "Content-Type": "application/json" } });
 
 /** Запрос к API Stripe: ключ в Authorization, тело — форма (line_items[0][quantity]=1) */
-async function stripe(path: string, form?: Record<string, string>, idempotencyKey?: string): Promise<Json> {
+async function stripe(path: string, form?: Record<string, string>, idempotencyKey?: string, version?: string): Promise<Json> {
   const response = await fetch(`${API}${path}`, {
     method: form ? "POST" : "GET",
     headers: {
       Authorization: `Bearer ${SECRET_KEY}`,
       ...(form ? { "Content-Type": "application/x-www-form-urlencoded" } : {}),
       ...(idempotencyKey ? { "Idempotency-Key": idempotencyKey } : {}),
+      ...(version ? { "Stripe-Version": version } : {}),
     },
     body: form ? new URLSearchParams(form) : undefined,
   });
@@ -121,6 +133,64 @@ async function customerOrder(req: Request, orderId: number): Promise<Json> {
   return data;
 }
 
+/** Резерв покупателя под оплату в окне магазина — проверяет база по его подписи Telegram или ссылке из Instagram */
+async function customerHold(req: Request, holdId: number): Promise<Json> {
+  const initData = req.headers.get("x-telegram-init-data") ?? "";
+  const igToken = req.headers.get("x-ig-token") ?? "";
+  const asCustomer = createClient(SUPABASE_URL, ANON_KEY, {
+    auth: { persistSession: false },
+    global: { headers: initData ? { "X-Telegram-Init-Data": initData } : igToken ? { "X-Ig-Token": igToken } : {} },
+  });
+  const { data, error } = await asCustomer.rpc("hold_pay_order", { p_id: holdId });
+  if (error) {
+    const reason = /pay:([a-z_]+)/.exec(error.message || "")?.[1];
+    throw { code: reason || (error.code === "PGRST202" ? "no_function" : "server") };
+  }
+  if (!allowed(data.user_id)) throw { code: "test_only" };
+  return data;
+}
+
+/** Форма оплаты Stripe для окна магазина: открытую используем снова, иначе создаём новую */
+async function embedded(req: Request, holdId: number) {
+  const hold = await customerHold(req, holdId);
+  if (hold.status === "paid") return { paid: true, order_id: hold.order_id };
+  if (hold.status !== "pending") throw { code: "expired" };
+  if (!PUBLISHABLE_KEY) throw { code: "not_configured" };
+  if (hold.pay_id) {
+    const old = await stripe(`/checkout/sessions/${hold.pay_id}`, undefined, undefined, EMBEDDED_VERSION);
+    if (old.status === "open" && old.client_secret) return { client_secret: old.client_secret, publishable_key: PUBLISHABLE_KEY };
+  }
+  const kopecks = Math.round(Number(hold.total) * 100);
+  if (!(kopecks >= 50)) throw { code: "bad_amount" };
+  const session = await stripe("/checkout/sessions", {
+    mode: "payment",
+    ui_mode: "embedded",
+    redirect_on_completion: "never", // окно магазина остаётся на месте: о платеже сообщает сама форма
+    "line_items[0][quantity]": "1",
+    "line_items[0][price_data][currency]": "rub",
+    "line_items[0][price_data][unit_amount]": String(kopecks),
+    "line_items[0][price_data][product_data][name]": "Заказ VEXA",
+    "metadata[hold_id]": String(holdId),
+    client_reference_id: `hold${holdId}`,
+    locale: "auto",
+    expires_at: String(Math.floor(Date.now() / 1000) + 31 * 60), // Stripe: не меньше 30 минут
+    ...(TEST_MODE ? { "custom_text[submit][message]": TEST_CARD_HINT } : {}),
+  }, crypto.randomUUID(), EMBEDDED_VERSION);
+  if (!session.client_secret) throw { code: "server" };
+  await admin.rpc("hold_pay_start", { p_id: holdId, p_pay_id: session.id });
+  return { client_secret: session.client_secret, publishable_key: PUBLISHABLE_KEY };
+}
+
+/** Форма сообщила об оплате: спрашиваем Stripe сами и создаём заказ (Stripe-событие сделает то же, если настроено) */
+async function holdCheck(req: Request, holdId: number) {
+  let hold = await customerHold(req, holdId);
+  if (hold.status !== "paid" && hold.pay_id) {
+    await applyPayment(await stripe(`/checkout/sessions/${hold.pay_id}`, undefined, undefined, EMBEDDED_VERSION));
+    hold = await customerHold(req, holdId);
+  }
+  return { paid: hold.status === "paid", order_id: hold.order_id ?? null };
+}
+
 /** Заказ по номеру, без проверки покупателя (ссылка подписана) — ключом service_role */
 async function orderById(orderId: number): Promise<Json> {
   const { data } = await admin.from("orders")
@@ -139,6 +209,17 @@ async function isStaff(req: Request): Promise<boolean> {
 
 /** Оплата прошла → заказ оплачен. Сумму и номер заказа берём из самой страницы оплаты Stripe. */
 async function applyPayment(session: Json): Promise<boolean> {
+  const holdId = Number(session?.metadata?.hold_id);
+  if (holdId) { // оплата в окне магазина: заказа ещё нет, он создаётся сейчас, сразу оплаченным
+    if (session?.payment_status !== "paid" || session.currency !== "rub") return false;
+    const amount = Number(session.amount_total) / 100;
+    const { data: created, error } = await admin.rpc("hold_confirm", {
+      p_id: holdId, p_pay_id: session.id, p_amount: amount, p_test: !session.livemode,
+    });
+    if (error) { console.error("hold_confirm:", error); throw new Error("db"); }
+    if (created) await notifyCustomer(Number(created), amount);
+    return true;
+  }
   const orderId = Number(session?.metadata?.order_id);
   if (session?.payment_status !== "paid" || !orderId || session.currency !== "rub") return false;
   const amount = Number(session.amount_total) / 100;
@@ -293,6 +374,15 @@ Deno.serve(async (req) => {
 
   const orderId = Number(body?.order_id);
   if (!SECRET_KEY) return answer({ error: "not_configured" }, 503);
+  if (body?.action === "embedded" || body?.action === "hold_check") {
+    const holdId = Number(body?.hold_id);
+    if (!Number.isInteger(holdId) || holdId <= 0) return answer({ error: "bad_order" }, 400);
+    try { return answer(body.action === "embedded" ? await embedded(req, holdId) : await holdCheck(req, holdId)); }
+    catch (e) {
+      const code = (e as Json)?.code ?? ((e as Error)?.message === "provider" ? "provider" : "server");
+      return answer({ error: code }, ["denied", "not_found", "test_only"].includes(code) ? 403 : code === "expired" ? 409 : code === "not_configured" ? 503 : 502);
+    }
+  }
   if (body?.action === "demo_check") {
     try { return answer(await demoCheck(String(body.session_id ?? ""))); }
     catch (e) { return answer({ error: (e as Json)?.code ?? "provider" }, (e as Json)?.code ? 400 : 502); }
@@ -300,6 +390,17 @@ Deno.serve(async (req) => {
   if (!Number.isInteger(orderId) || orderId <= 0) return answer({ error: "bad_order" }, 400);
   try {
     if (body.action === "demo_create") return answer(await demoCreate(orderId, Number(body.amount)));
+    if (body.action === "auto_accept") {
+      const { data: config } = await admin.from("shop_settings").select("auto_secret").eq("id", 1).maybeSingle();
+      const secret = req.headers.get("x-auto-accept") ?? "";
+      if (!secret || secret !== config?.auto_secret) return answer({ error: "denied" }, 403);
+      const order = await orderById(orderId);
+      if (!order || order.status !== "new") return answer({ ok: false, skipped: "status" });
+      if (!allowed(order.user_id)) return answer({ ok: false, skipped: "test_only" }); // тестовый ключ: заказ примет менеджер
+      const { data: done, error } = await admin.rpc("order_auto_accept", { p_id: orderId, p_text: await payLink(orderId) });
+      if (error) { console.error("order_auto_accept:", error); throw new Error("db"); }
+      return answer({ ok: Boolean(done) });
+    }
     if (body.action === "link") {
       if (!(await isStaff(req))) return answer({ error: "denied" }, 403);
       const order = await orderById(orderId);

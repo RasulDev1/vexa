@@ -169,6 +169,8 @@ export async function placeOrder() {
   try {
     if (!hasOrdersBackend) return sendOrderToManager(order);
     if (hasServer) await askWritePermission(); // бот пришлёт реквизиты в чат; с Supabase они придут в «Мои заказы»
+    // оплата картой — прямо в этом окне, заказ появляется только после оплаты; не вышло — прежний порядок (заказ, потом ссылка)
+    if (useSupabase && api.holdOrder && payWayOf(order) === "online" && onlinePayOn() && (await payInWindow(order, items)) !== "fallback") return;
     const { num } = await api.placeOrder(order);
     if (source && askSource()) {
       storage.set("temp_source_sent", true);
@@ -177,7 +179,11 @@ export async function placeOrder() {
     rememberOrder({ ...order, num, date: new Date().toISOString(), status: "new" });
     state.cart = [];
     saveCart();
-    showOrderPlaced(items, useSupabase ? "Мы проверим наличие и пришлём реквизиты для оплаты сюда, во вкладку «Мои заказы». Статус обновится сам." : undefined);
+    const payHere = useSupabase && payWayOf(order) === "online" && onlinePayOn(); // онлайн-оплата — кнопка прямо в этом окне
+    showOrderPlaced(items, useSupabase ? "Заказ принят автоматически. Реквизиты или ссылка на оплату появятся сразу здесь, во вкладке «Мои заказы», и придут в чат бота." : undefined, payHere ? num : 0);
+    if (payHere) waitPayButton(num);
+    // база принимает заказ сама, через секунду-две: догружаем статус, если событие пришло раньше записи заказа
+    if (useSupabase && !payHere) setTimeout(() => renderMyOrders(true), 2500);
     refreshCatalog(); // остатки изменились
   } catch (error) {
     haptic("medium");
@@ -226,7 +232,70 @@ function sendOrderToManager(order) {
   showOrderPlaced(order.items, "Отправьте сообщение в открывшемся чате с менеджером — он подтвердит наличие и пришлёт реквизиты для оплаты. Текст заказа также скопирован.");
 }
 
-function showOrderPlaced(items, note = "Когда менеджер проверит наличие, бот пришлёт в этот чат реквизиты для оплаты.") {
+/** Оплата картой в окне оформления: товар резервируется, форма оплаты открывается тут же, заказ создаётся после оплаты.
+ *  Возвращает "fallback", если так нельзя (в базе или Stripe не настроено): тогда магазин оформит заказ по-старому. */
+async function payInWindow(order, items) {
+  const hold = await api.holdOrder(order).catch((error) => { if (error.code === "no_function") return null; throw error; });
+  if (!hold) return "fallback";
+  let payment;
+  try { payment = await api.preparePayment(hold.id); }
+  catch (error) {
+    api.holdCancel(hold.id);
+    if (["not_configured", "provider", "no_function", "server"].includes(error.code)) return "fallback";
+    throw error;
+  }
+  const paid = (orderNum) => {
+    refreshCatalog();
+    if (source && askSource()) {
+      storage.set("temp_source_sent", true);
+      api.customerSourceAnswer(source).catch(() => {});
+    }
+    if (orderNum) rememberOrder({ ...order, num: orderNum, date: new Date().toISOString(), status: "paid" });
+    state.cart = [];
+    saveCart();
+    renderMyOrders(true); // настоящий статус и сумма оплаты — из базы
+    showOrderPlaced(items, "Оплата прошла, заказ оформлен. Менеджер подготовит его к отправке, статус виден во вкладке «Мои заказы».");
+  };
+  if (payment.paid) return paid(payment.orderId);
+  sheetBody.innerHTML = `<div class="grab"></div><h2 class="p-name">Оплата заказа</h2>
+    <p class="p-desc">К оплате ${formatPrice(hold.total)}. Товар зарезервирован на 30 минут: заказ оформится сразу после оплаты.</p>
+    <div id="payBox"></div>
+    <button class="ghost" id="payCancel" style="width:100%">Отмена</button>`;
+  let unmount = () => {};
+  sheetBody.onclick = (e) => {
+    if (e.target.id !== "payCancel") return;
+    unmount();
+    api.holdCancel(hold.id);
+    closeSheet();
+    toast("Заказ не оформлен, товар снова в наличии");
+  };
+  try { unmount = (await payment.mount($("payBox"), paid, { total: formatPrice(hold.total) })) || unmount; }
+  catch {
+    api.holdCancel(hold.id);
+    return "fallback"; // форму Stripe открыть не удалось
+  }
+}
+
+/** Заказ принимается сам за секунду-две: как только появилась оплата, включаем кнопку прямо в окне «Спасибо за заказ» */
+async function waitPayButton(num) {
+  for (let i = 0; i < 8; i++) {
+    await new Promise((resolve) => setTimeout(resolve, i ? 1500 : 1000));
+    const button = $("payNow");
+    if (!button) return; // окно закрыли — оплата осталась в «Мои заказы»
+    await renderMyOrders(true);
+    const order = state.myOrders.find((o) => o.num === num);
+    if (order?.status === "accepted") {
+      button.disabled = false;
+      button.dataset.payOnline = num;
+      button.textContent = `Оплатить картой онлайн · ${formatPrice(Number(order.total) || 0)}`;
+      return;
+    }
+  }
+  const button = $("payNow");
+  if (button) button.textContent = "Оплата появится в «Мои заказы»";
+}
+
+function showOrderPlaced(items, note = "Когда менеджер проверит наличие, бот пришлёт в этот чат реквизиты для оплаты.", payNum = 0) {
   sheetBody.innerHTML = `<div class="grab"></div><div class="done">
     <div class="finish" aria-hidden="true"><span></span><span></span><span></span><span></span></div>
     <svg class="check" viewBox="0 0 54 54" aria-hidden="true"><circle cx="27" cy="27" r="27"/><path d="M16 28 L24 36 L39 19"/></svg>
@@ -234,8 +303,12 @@ function showOrderPlaced(items, note = "Когда менеджер провер
     <p class="order-lead">Дата оформления: ${orderDate(new Date())}<br>Вы выбрали:</p>
     ${orderItemsHtml({ items })}
     <p class="p-desc">${note}</p>
-    <button class="primary" id="showMyOrders">Мои заказы</button></div>`;
-  sheetBody.onclick = (e) => { if (e.target.id === "showMyOrders") { closeSheet(); setTab("orders"); } };
+    ${payNum ? `<button class="primary pay" id="payNow" disabled>Готовим оплату…</button>` : ""}
+    <button class="${payNum ? "ghost" : "primary"}" id="showMyOrders"${payNum ? ' style="width:100%"' : ""}>Мои заказы</button></div>`;
+  sheetBody.onclick = (e) => {
+    if (e.target.id === "showMyOrders") { closeSheet(); setTab("orders"); }
+    if (e.target.dataset?.payOnline) payOnline(e.target);
+  };
   haptic("success");
   openSheet("done");
 }
