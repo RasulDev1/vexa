@@ -214,13 +214,14 @@ async function shopLink(userId: number, tab = "") {
   return url.href;
 }
 
-/** Сообщение с кнопкой-ссылкой на магазин. Шаблон не прошёл — та же ссылка текстом. */
+/** Сообщение с кнопкой-ссылкой на магазин и кнопкой «Мои заказы» прямо в карточке: кнопки быстрого ответа
+    Instagram под такой карточкой не показывает, а кнопки карточки не пропадают. Шаблон не прошёл — ссылка текстом. */
 async function sayWithShop(to: string, userId: number, text: string, title = "🛍 Открыть магазин", tab = "") {
   const url = await shopLink(userId, tab);
   const result = await ig({
     recipient: { id: to },
     message: { attachment: { type: "template", payload: { template_type: "button", text: text.slice(0, 640),
-      buttons: [{ type: "web_url", url, title: title.slice(0, 20) }] } }, quick_replies: [Q_ORDERS] },
+      buttons: [{ type: "web_url", url, title: title.slice(0, 20) }, { type: "postback", title: "📦 Мои заказы", payload: "ORDERS" }] } } },
   });
   if (!sent(result)) return say(to, `${text}\n\n${url}`, [Q_ORDERS]);
   return result;
