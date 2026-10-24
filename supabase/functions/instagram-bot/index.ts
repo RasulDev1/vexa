@@ -106,13 +106,14 @@ async function connect(url: URL): Promise<Response> {
   return page("✅ Готово: аккаунт Instagram подключён к магазину и получает сообщения. Это окно можно закрыть.");
 }
 
-/** Постоянное меню директа (кнопка ☰ у поля ввода) — «📦 Мои заказы».
+/** Постоянное меню директа (кнопка ☰ у поля ввода) — «🛍 Магазин» и «📦 Мои заказы», как в Telegram.
     Не получилось — бот работает и без него: те же кнопки приходят под сообщениями. */
 async function setMenu(accessToken: string) {
   const result = await fetch(`${GRAPH}/me/messenger_profile`, {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
     body: JSON.stringify({ platform: "instagram", persistent_menu: [{ locale: "default", call_to_actions: [
+      { type: "postback", title: "🛍 Магазин", payload: "SHOP" },
       { type: "postback", title: "📦 Мои заказы", payload: "ORDERS" },
     ] }] }),
   }).then((r) => r.json()).catch(() => null);
@@ -129,6 +130,7 @@ async function setIceBreakers(accessToken: string) {
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
     body: JSON.stringify({ platform: "instagram", ice_breakers: [{ locale: "default", call_to_actions: [
       { question: "📦 Мои заказы", payload: "ORDERS" },
+      { question: "🛍 Каталог", payload: "SHOP" },
     ] }] }),
   }).then((r) => r.json()).catch(() => null);
   if (!result?.result) console.error("Instagram ice breakers:", result?.error?.message ?? result);
@@ -149,8 +151,8 @@ async function checkMenu() {
   const result = await fetch(`${GRAPH}/me/messenger_profile?platform=instagram&fields=persistent_menu,ice_breakers`,
     { headers: { Authorization: `Bearer ${accessToken}` } }).then((r) => r.json()).catch(() => null);
   const items = result?.data?.[0]?.persistent_menu?.[0]?.call_to_actions;
-  const hasShop = JSON.stringify(result?.data ?? []).includes('"SHOP"'); // кнопка магазина из прежней версии бота — убираем
-  if (items?.length && !hasShop) {
+  const hasShop = JSON.stringify(result?.data ?? []).includes('"SHOP"'); // меню без магазина (прежняя версия бота) — ставим заново
+  if (items?.length && hasShop) {
     console.log(`Меню Instagram (☰) на месте: ${items.map((i: Json) => i.title).join(", ")}`);
     if (!result.data.some((d: Json) => d.ice_breakers?.length)) await setIceBreakers(accessToken);
     return;
@@ -202,6 +204,7 @@ async function say(to: string, text: string, quick?: Json[]) {
    Подпись кнопки — не длиннее 20 символов. */
 const quick = (title: string, payload: string) => ({ content_type: "text", title: title.slice(0, 20), payload });
 const Q_ORDERS = quick("📦 Мои заказы", "ORDERS");
+const Q_SHOP = quick("🛍 Магазин", "SHOP");
 
 /* ---------- Покупатель ----------
    В базе — под отрицательным ID (ig_users): так все заказы, чат и CRM работают как с Telegram ID. */
@@ -264,12 +267,9 @@ async function shopLink(userId: number) {
   return url.href;
 }
 
-/** Приветствие на первое сообщение: карточка с кнопкой каталога (личная ссылка) и «📦 Мои заказы».
+/** Карточка с кнопкой каталога (личная ссылка) и «📦 Мои заказы».
     Кнопки быстрого ответа Instagram под такой карточкой не показывает. Шаблон не прошёл — ссылка текстом. */
-async function greet(to: string, userId: number, ordered = false) {
-  const text = "Здравствуйте! Это VEXA — мужская одежда для бега, зала и улицы 🏃\n\n" +
-    "🛍 Каталог — по кнопке ниже: заказ с этой ссылки сразу придёт сюда, в директ." +
-    (ordered ? "" : "\nУже оформили заказ на сайте? Отправьте сюда номер телефона из заказа — бот пришлёт его.");
+async function catalog(to: string, userId: number, text: string) {
   const url = await shopLink(userId);
   const result = await ig({
     recipient: { id: to },
@@ -279,6 +279,12 @@ async function greet(to: string, userId: number, ordered = false) {
   if (!sent(result)) return say(to, `${text}\n\n${url}`, [Q_ORDERS]);
   return result;
 }
+
+/** Приветствие на первое сообщение */
+const greet = (to: string, userId: number, ordered = false) => catalog(to, userId,
+  "Здравствуйте! Это VEXA — мужская одежда для бега, зала и улицы 🏃\n\n" +
+  "🛍 Каталог — по кнопке ниже: заказ с этой ссылки сразу придёт сюда, в директ." +
+  (ordered ? "" : "\nУже оформили заказ на сайте? Отправьте сюда номер телефона из заказа — бот пришлёт его."));
 
 /** Статус заказа — так, как его поймёт покупатель */
 const STATUS: Record<string, string> = {
@@ -306,7 +312,7 @@ async function sendOrders(to: string, userId: number) {
   }
   if (!orders?.length) {
     return say(to, "Сейчас у вас нет активных заказов.\n\n" +
-      "Только что оформили заказ на сайте? Отправьте сюда номер телефона из заказа — сайт скопировал его, когда вы нажали «Открыть директ VEXA». Бот сразу пришлёт заказ.", [Q_ORDERS]);
+      "Только что оформили заказ на сайте? Отправьте сюда номер телефона из заказа — сайт скопировал его, когда вы нажали «Открыть директ VEXA». Бот сразу пришлёт заказ.", [Q_SHOP, Q_ORDERS]);
   }
   const lines = orders.map((o: Json, i: number) => {
     const items = itemsOf(o);
@@ -314,7 +320,7 @@ async function sendOrders(to: string, userId: number) {
     return `${i + 1}. ${day(o.created_at)} · ${what} · ${rub(o.total)}\n${STATUS[o.status] ?? ""}`;
   });
   return say(to, `${orders.length === 1 ? "Ваш заказ" : "Ваши заказы"} 👇 Нажмите на нужный, чтобы посмотреть детали.\n\n${lines.join("\n\n")}`,
-    [...orders.map((o: Json, i: number) => quick(`${i + 1}. ${shortDay(o.created_at)} · ${rub(o.total)}`, `ORDER:${o.id}`))]);
+    [...orders.map((o: Json, i: number) => quick(`${i + 1}. ${shortDay(o.created_at)} · ${rub(o.total)}`, `ORDER:${o.id}`)), Q_SHOP]);
 }
 
 /* ---------- Фото заказанных товаров ----------
@@ -380,7 +386,7 @@ async function chooseOrder(to: string, userId: number, orderId: number, accepted
   const { data: o } = await db.from("orders")
     .select("id,status,total,items,payment_details,manager_note,created_at")
     .eq("id", orderId).eq("user_id", userId).maybeSingle();
-  if (!o || !ACTIVE.includes(o.status)) return say(to, "Этот заказ уже завершён. Нажмите «📦 Мои заказы», чтобы увидеть актуальные.", [Q_ORDERS]);
+  if (!o || !ACTIVE.includes(o.status)) return say(to, "Этот заказ уже завершён. Нажмите «📦 Мои заказы», чтобы увидеть актуальные.", [Q_SHOP, Q_ORDERS]);
   const items = itemsOf(o);
   await sendPhotos(to, items);
   const lines = items.map((l) => `• ${l.name} — ${String(l.colorName ?? "").toLowerCase()}, размер ${l.size}${Number(l.qty) > 1 ? `, ${l.qty} шт.` : ""}`);
@@ -397,10 +403,10 @@ async function chooseOrder(to: string, userId: number, orderId: number, accepted
   }
   if (OPEN.includes(o.status)) {
     text += "\n\n✍️ Есть вопрос? Просто напишите сюда — ответит менеджер.";
-    return say(to, text, [Q_ORDERS]);
+    return say(to, text, [Q_SHOP, Q_ORDERS]);
   }
   text += "\n\nМенеджер проверяет, всё ли есть в наличии. Как только заказ будет подтверждён, реквизиты для оплаты придут сюда.";
-  return say(to, text, [Q_ORDERS]);
+  return say(to, text, [Q_SHOP, Q_ORDERS]);
 }
 
 // «/start», «старт», «начать» — как /start в Telegram: заново показывают приветствие
@@ -431,13 +437,14 @@ async function linked(to: string, userId: number) {
     .order("id", { ascending: false }).limit(1).maybeSingle();
   if (!o) {
     return say(to, "Готово! Директ подключён: статусы ваших заказов будут приходить сюда.\n\n" +
-      "📦 «Мои заказы» — статус заказа, реквизиты для оплаты и связь с менеджером.", [Q_ORDERS]);
+      "📦 «Мои заказы» — статус заказа, реквизиты для оплаты и связь с менеджером.", [Q_SHOP, Q_ORDERS]);
   }
   await say(to, "✅ Заказ оформлен! Статус, реквизиты для оплаты и сообщения менеджера будут приходить сюда, в директ.");
   return chooseOrder(to, userId, o.id);
 }
 
 const ORDER_WORDS = /^(📦\s*)?мои заказы/i;
+const SHOP_WORDS = /^(🛍\s*)?(магазин|каталог)$/i;
 
 /** Сообщение покупателя в директе */
 async function handle(igsid: string, m: Json) {
@@ -446,7 +453,7 @@ async function handle(igsid: string, m: Json) {
   // команда боту — сразу «печатает…»; обычное сообщение может читать менеджер, там бот молчит
   const code = LINK_CODE.exec(String(m.ref ?? ""))?.[0] ?? LINK_CODE.exec(text)?.[0];
   const phone = !code && !payload && PHONE.test(text) && text.replace(/\D/g, "").length >= 10 ? text : "";
-  if (payload || code || phone || ORDER_WORDS.test(text)) { markSeen(igsid); typing(igsid); }
+  if (payload || code || phone || ORDER_WORDS.test(text) || SHOP_WORDS.test(text)) { markSeen(igsid); typing(igsid); }
   // пришёл с сайта после заказа впервые — сначала приветствие, потом «Заказ оформлен»
   const fresh = (code || phone) ? await firstTime(igsid) : false;
   const welcome = async (userId: number) => { if (fresh) await greet(igsid, userId, true); return linked(igsid, userId); };
@@ -454,7 +461,7 @@ async function handle(igsid: string, m: Json) {
     const bound = await bind(igsid, phone, "phone");
     if (bound?.user_id) return welcome(Number(bound.user_id));
     if (bound?.error === "busy") return say(igsid, "Слишком много попыток. Попробуйте через час или напишите сюда, менеджер поможет.");
-    if (bound?.error === "no_order") return say(igsid, "Не нашёл заказ с этим номером за последние 2 дня 🤔 Проверьте, что номер тот же, что вы указали при оформлении на сайте.", [Q_ORDERS]);
+    if (bound?.error === "no_order") return say(igsid, "Не нашёл заказ с этим номером за последние 2 дня 🤔 Проверьте, что номер тот же, что вы указали при оформлении на сайте.", [Q_SHOP, Q_ORDERS]);
   }
   if (code) {
     const bound = await bind(igsid, code);
@@ -471,7 +478,10 @@ async function handle(igsid: string, m: Json) {
   const orderId = Number(/^ORDER:(\d+)$/.exec(payload)?.[1]);
   if (orderId) return chooseOrder(igsid, me.id, orderId);
   if (payload === "CLOSE") return sendOrders(igsid, me.id); // кнопка «Закрыть чат» из старых сообщений
-  if (payload === "SHOP") return sendOrders(igsid, me.id); // кнопка «🛍 Магазин» из прежних сообщений
+  // кнопка «🛍 Магазин» и слова «магазин», «каталог» — личная ссылка на каталог: заказ с неё сам придёт в директ
+  if (payload === "SHOP" || SHOP_WORDS.test(text)) {
+    return me.isNew ? greet(igsid, me.id) : catalog(igsid, me.id, "Каталог VEXA 👇 Заказ с этой ссылки сразу придёт сюда, в директ.");
+  }
 
   // Первое сообщение от нового человека (любое): приветствие с личной ссылкой на каталог и подсказкой прислать телефон,
   // если заказ уже есть, а код Instagram не передал (веб-версия). Дальше — обычная переписка: её читает менеджер, бот молчит
@@ -491,7 +501,7 @@ async function managerMessage(messageId: number) {
     (m.body ? `\n\n${m.body}` : "") +
     (m.file_name ? `\n\n📎 Менеджер прислал файл «${m.file_name}» — его можно открыть в магазине, в чате заказа.` : "") +
     "\n\nОтветить можно прямо здесь.";
-  await say(to, text, [Q_ORDERS]);
+  await say(to, text, [Q_SHOP, Q_ORDERS]);
 }
 
 const WAY: Record<string, string> = { cash: " наличными", card: " на карту" };
@@ -503,16 +513,16 @@ async function orderStatus(orderId: number, from: string) {
   if (!to) return;
   const head = `💬 Менеджер VEXA · заказ от ${day(o.created_at)}\n\n`;
   if (from === "new" && o.status === "awaiting_payment") return chooseOrder(to, o.user_id, o.id, true);
-  if (o.status === "cancelled") return say(to, head + (o.manager_note || "К сожалению, заказ отменён."), [Q_ORDERS]);
-  if (o.status === "paid") return say(to, `✅ Оплата ${rub(o.paid_amount ?? o.total)} получена. Готовим заказ, менеджер напишет вам о доставке.`, [Q_ORDERS]);
+  if (o.status === "cancelled") return say(to, head + (o.manager_note || "К сожалению, заказ отменён."), [Q_SHOP, Q_ORDERS]);
+  if (o.status === "paid") return say(to, `✅ Оплата ${rub(o.paid_amount ?? o.total)} получена. Готовим заказ, менеджер напишет вам о доставке.`, [Q_SHOP, Q_ORDERS]);
   if (o.status === "delivered" && ["return_requested", "return_approved"].includes(from)) {
-    return say(to, head + `По заказу отказано в возврате: ${o.return_declined ?? ""}`, [Q_ORDERS]);
+    return say(to, head + `По заказу отказано в возврате: ${o.return_declined ?? ""}`, [Q_SHOP, Q_ORDERS]);
   }
-  if (o.status === "delivered") return say(to, "📦 Заказ вручён. Спасибо за покупку!", [Q_ORDERS]);
+  if (o.status === "delivered") return say(to, "📦 Заказ вручён. Спасибо за покупку!", [Q_SHOP, Q_ORDERS]);
   if (o.status === "return_approved") {
-    return say(to, head + `Возврат одобрен. Привезите или отправьте вещь с бирками, и мы вернём ${rub(o.return_amount)}${WAY[o.return_method] ?? ""}.`, [Q_ORDERS]);
+    return say(to, head + `Возврат одобрен. Привезите или отправьте вещь с бирками, и мы вернём ${rub(o.return_amount)}${WAY[o.return_method] ?? ""}.`, [Q_SHOP, Q_ORDERS]);
   }
-  if (o.status === "returned") return say(to, head + `Возврат вручён: вещь получили, вернули вам ${rub(o.refund_amount)}${WAY[o.refund_method] ?? ""}.`, [Q_ORDERS]);
+  if (o.status === "returned") return say(to, head + `Возврат вручён: вещь получили, вернули вам ${rub(o.refund_amount)}${WAY[o.refund_method] ?? ""}.`, [Q_SHOP, Q_ORDERS]);
 }
 
 /** Запрос от базы подписан секретом из ig_settings — его знают только база и эта функция */
