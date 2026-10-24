@@ -43,6 +43,7 @@ let staffSession = null; // { name, login, role: "manager" | "admin", staff_topi
    Ключ запоминается на устройстве и уходит в заголовке X-Ig-Token — по нему база узнаёт покупателя,
    как по подписи Telegram. В Telegram по-прежнему входим подписью Telegram. */
 const IG_TOKEN_KEY = "temp_ig_token";
+const IG_GUEST_KEY = "temp_ig_guest"; // ключ выдан сайтом при заказе (ссылка из шапки профиля), а не ботом в директе
 let igToken = takeIgToken();
 let viaInstagram = Boolean(igToken) && !telegram?.initData;
 function takeIgToken() {
@@ -50,6 +51,7 @@ function takeIgToken() {
   const fromLink = params.get("ig");
   if (!fromLink) return storage.get(IG_TOKEN_KEY, "");
   storage.set(IG_TOKEN_KEY, fromLink);
+  storage.set(IG_GUEST_KEY, false);
   // ключ убираем из адреса, чтобы им случайно не поделились вместе со ссылкой
   params.delete("ig");
   history.replaceState(null, "", location.pathname + (params.size ? "?" + params : "") + location.hash);
@@ -66,6 +68,7 @@ async function guestLogin() {
   }
   igToken = data.token;
   storage.set(IG_TOKEN_KEY, igToken);
+  storage.set(IG_GUEST_KEY, true);
   viaInstagram = true;
   client = null; // следующие запросы — уже с ключом
   return true;
@@ -128,7 +131,18 @@ export function supabaseLogin(guest = false) {
 function fail_(reason) { loginError = reason; return null; }
 
 /** Вход покупателя при оформлении заказа: обычный, а не вышло без Telegram и ключа — по сайту */
-const customerLogin = async () => (await supabaseLogin()) || supabaseLogin(true);
+const customerLogin = async () => {
+  const user = await supabaseLogin();
+  if (!user) return supabaseLogin(true);
+  // Заказ по ссылке из шапки, а директ уже привязан к аккаунту. В браузере Instagram сайт общий для всех аккаунтов
+  // на телефоне, поэтому каждый такой заказ заводим заново: он привяжется к тому аккаунту, из которого нажмут «Открыть директ»
+  if (user.channel === "instagram" && user.linked && storage.get(IG_GUEST_KEY, true) && !telegram?.initData) {
+    me = null;
+    if (!(await guestLogin())) return null;
+    return supabaseLogin();
+  }
+  return user;
+};
 
 /** Вызов функции базы; ошибка — { code }: причина из базы (staff:…), no_function, network или server */
 async function rpc(name, args) {
