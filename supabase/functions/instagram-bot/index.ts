@@ -146,6 +146,10 @@ async function checkMenu() {
   menuChecked = true;
   const accessToken = await token();
   if (!accessToken) return;
+  // подписка аккаунта на события: аккаунты, подключённые раньше, не получали messaging_referral (код из ссылки ig.me)
+  const sub = await fetch(`${GRAPH}/me/subscribed_apps?subscribed_fields=messages,messaging_postbacks,messaging_referral`,
+    { method: "POST", headers: { Authorization: `Bearer ${accessToken}` } }).then((r) => r.json()).catch(() => null);
+  if (!sub?.success) console.error("Instagram subscribed_apps:", sub?.error?.message ?? sub);
   const result = await fetch(`${GRAPH}/me/messenger_profile?platform=instagram&fields=persistent_menu,ice_breakers`,
     { headers: { Authorization: `Bearer ${accessToken}` } }).then((r) => r.json()).catch(() => null);
   const items = result?.data?.[0]?.persistent_menu?.[0]?.call_to_actions;

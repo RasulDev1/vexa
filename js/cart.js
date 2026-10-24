@@ -346,30 +346,22 @@ function showOrderPlaced(items, note = "Когда менеджер провер
 
 /* ---------- Статус заказа в директ Instagram ----------
    Покупатель пришёл по ссылке из шапки профиля и заказал на сайте (supabase-instagram-bio.sql). Написать ему первым
-   Instagram не разрешает, поэтому кнопка открывает директ магазина со ссылкой ig.me/m/магазин?ref=код: покупатель
-   нажимает «📦 Мои заказы» или отправляет код, бот привязывает заказы к его Instagram и сразу присылает заказ. */
+   Instagram не разрешает, поэтому кнопка открывает директ магазина со ссылкой ig.me/m/магазин?ref=код: код Instagram
+   передаёт боту сам (нажатие «📦 Мои заказы» в директе), бот привязывает заказы к его Instagram и сразу присылает заказ. */
 async function showInstagramOffer(box, afterOrder = false) {
   if (!box || !useSupabase || !INSTAGRAM_USERNAME) return;
   const link = await instagramLinkCode().catch(() => null);
   if (!link || !box.isConnected) return;
   const url = `https://ig.me/m/${encodeURIComponent(INSTAGRAM_USERNAME.replace(/^@/, ""))}?ref=${encodeURIComponent(link.code)}`;
   box.innerHTML = `<p class="ig-offer-title">${afterOrder ? "Получайте статус заказа в Instagram" : "Статус заказов — в директ Instagram"}</p>
-    <p class="ig-offer-text">Нажмите кнопку и отправьте в директ код. Бот сразу пришлёт заказ, а дальше — реквизиты, оплату и доставку.</p>
-    <a class="primary ig-offer-go" href="${url}" target="_blank" rel="noopener" data-ig-offer>Открыть директ VEXA</a>
-    <button class="ghost ig-offer-code" data-ig-code="${escapeHtml(link.code)}">Код: <b>${escapeHtml(link.code)}</b> · скопировать</button>`;
+    <p class="ig-offer-text">В директе нажмите «📦 Мои заказы» — бот пришлёт заказ, а дальше реквизиты, оплату и доставку.</p>
+    <a class="primary ig-offer-go" href="${url}" target="_blank" rel="noopener" data-ig-offer>Открыть директ VEXA</a>`;
   box.hidden = false;
 }
 
 function igOfferClick(e) {
-  const code = e.target.closest("[data-ig-code]");
-  if (code) { haptic(); copyToClipboard(code.dataset.igCode, code); }
   const go = e.target.closest("[data-ig-offer]");
-  if (go) {
-    e.preventDefault();
-    haptic();
-    navigator.clipboard?.writeText(go.closest(".ig-offer").querySelector("[data-ig-code]").dataset.igCode).catch(() => {}); // код уже в буфере — останется вставить
-    openLink(go.href);
-  }
+  if (go) { e.preventDefault(); haptic(); openLink(go.href); }
 }
 
 /* ---------- Мои заказы ---------- */

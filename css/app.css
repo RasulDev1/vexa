@@ -327,5 +327,3 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .ig-offer-title { font: 700 15px/1.3 var(--display); margin: 0 0 6px; }
 .ig-offer-text { color: var(--muted); font-size: 13.5px; margin: 0; }
 .ig-offer-go { display: block; text-align: center; text-decoration: none; margin-top: 12px; }
-.ig-offer-code { width: 100%; margin-top: 8px; color: var(--ink); font-size: 13px; }
-.ig-offer-code b { letter-spacing: .06em; }
