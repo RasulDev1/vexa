@@ -111,9 +111,9 @@ alter table public.ig_phone_tries enable row level security;
 
 create or replace function public.ig_bind_phone(p_phone text, p_igsid text, p_username text, p_name text)
 returns jsonb language plpgsql volatile security definer set search_path = '' as $$
-declare d text := right(regexp_replace(coalesce(p_phone, ''), '\D', '', 'g'), 10); t public.ig_phone_tries; g record; r jsonb; res jsonb;
+declare d text := regexp_replace(coalesce(p_phone, ''), '\D', '', 'g'); t public.ig_phone_tries; g record; r jsonb; res jsonb;
 begin
-  if length(d) < 10 then return jsonb_build_object('error', 'bad_phone'); end if;
+  if length(d) < 5 then return jsonb_build_object('error', 'bad_phone'); end if;
   select * into t from public.ig_phone_tries where igsid = p_igsid;
   if t.igsid is not null and t.last_at < now() - interval '1 hour' then
     update public.ig_phone_tries set tries = 0 where igsid = p_igsid; t.tries := 0;
@@ -123,7 +123,9 @@ begin
     select u.user_id, u.link_code, max(o.id) as last_order
     from public.orders o join public.ig_users u on u.user_id = o.user_id
     where u.igsid is null and u.link_code is not null and o.created_at > now() - interval '2 days'
-      and right(regexp_replace(coalesce(o.phone, ''), '\D', '', 'g'), 10) = d
+      -- длинный номер — по последним 10 цифрам (+7 / 8 / без кода страны), короткий или необычный — целиком
+      and case when length(d) >= 10 then right(regexp_replace(coalesce(o.phone, ''), '\D', '', 'g'), 10) = right(d, 10)
+               else regexp_replace(coalesce(o.phone, ''), '\D', '', 'g') = d end
     group by u.user_id, u.link_code order by last_order desc limit 1 -- только последний заказ с этим номером
   loop
     r := public.ig_bind(g.link_code, p_igsid, p_username, p_name);
