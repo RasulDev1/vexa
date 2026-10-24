@@ -356,11 +356,21 @@ async function showInstagramOffer(box, afterOrder = false) {
   box.innerHTML = `<p class="ig-offer-title">${afterOrder ? "Получайте статус заказа в Instagram" : "Статус заказов — в директ Instagram"}</p>
     <ol class="ig-offer-steps"><li>Нажмите «Открыть директ VEXA».</li><li>В чате нажмите «📦 Мои заказы».</li></ol>
     <p class="ig-offer-text">Бот пришлёт заказ, а дальше — реквизиты, оплату и доставку.</p>
-    <a class="primary ig-offer-go" href="${url}" target="_blank" rel="noopener" data-ig-offer>Открыть директ VEXA</a>`;
+    <a class="primary ig-offer-go" href="${url}" target="_blank" rel="noopener" data-ig-offer>Открыть директ VEXA</a>
+    <p class="ig-offer-text ig-offer-code">Бот не прислал заказ? Скопируйте код и отправьте его в директ VEXA.</p>
+    <button class="ghost ig-offer-copy" data-ig-copy="${escapeHtml(link.code)}">📋 Скопировать код ${escapeHtml(link.code)}</button>`;
   box.hidden = false;
 }
 
 function igOfferClick(e) {
+  const copy = e.target.closest("[data-ig-copy]");
+  if (copy) {
+    copyText(copy.dataset.igCopy);
+    haptic("success");
+    copy.textContent = "✅ Код скопирован";
+    setTimeout(() => (copy.textContent = `📋 Скопировать код ${copy.dataset.igCopy}`), 2000);
+    return;
+  }
   const go = e.target.closest("[data-ig-offer]");
   if (!go) return;
   e.preventDefault();
@@ -381,7 +391,7 @@ function igOfferClick(e) {
   // приложение не открылось (страница так и осталась на экране) — подсказываем отправить код вручную
   setTimeout(() => {
     if (document.hidden || go.parentElement.querySelector(".ig-offer-manual")) return;
-    go.insertAdjacentHTML("afterend", `<p class="ig-offer-text ig-offer-manual">Директ не открылся? Закройте сайт, чтобы вернуться в Instagram, зайдите в директ VEXA и вставьте код <b>${escapeHtml(code)}</b> — он уже скопирован. Бот пришлёт заказ.</p>`);
+    go.insertAdjacentHTML("afterend", `<p class="ig-offer-text ig-offer-manual">Директ не открылся? Закройте сайт, чтобы вернуться в Instagram, зайдите в директ VEXA и вставьте код — он уже скопирован. Бот пришлёт заказ.</p>`);
   }, 2500);
 }
 

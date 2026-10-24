@@ -329,4 +329,6 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .ig-offer-steps { margin: 2px 0 6px; padding-left: 20px; font-size: 14px; line-height: 1.5; }
 .ig-offer-go { display: block; text-align: center; text-decoration: none; margin-top: 12px; }
 .ig-offer-manual { margin-top: 10px; }
+.ig-offer-code { margin-top: 12px; }
+.ig-offer-copy { display: block; width: 100%; margin-top: 8px; }
 .ig-offer-manual b { color: var(--ink); letter-spacing: .04em; user-select: all; }
