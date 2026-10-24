@@ -304,7 +304,11 @@ async function sendOrders(to: string, userId: number) {
     console.error("orders", error);
     return say(to, "Не получилось загрузить заказы 😔 Попробуйте, пожалуйста, ещё раз через минуту.");
   }
-  if (!orders?.length) return sayWithShop(to, userId, "Сейчас у вас нет активных заказов.\n\nЗагляните в каталог — новинки уже ждут 👇");
+  if (!orders?.length) {
+    return sayWithShop(to, userId, "Сейчас у вас нет активных заказов.\n\n" +
+      "Только что оформили заказ на сайте? Вставьте сюда сообщением код — сайт скопировал его, когда вы нажали «Открыть директ VEXA». Бот сразу пришлёт заказ.\n\n" +
+      "Или загляните в каталог — новинки уже ждут 👇");
+  }
   const lines = orders.map((o: Json, i: number) => {
     const items = itemsOf(o);
     const what = String(items[0]?.name ?? "Заказ") + (items.length > 1 ? ` и ещё ${items.length - 1}` : "");

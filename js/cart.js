@@ -370,6 +370,9 @@ function igOfferClick(e) {
   // Android — через intent (и в Chrome, и в браузере внутри Instagram): он запускает приложение, а без него
   // открывает ссылку в браузере; iPhone — переходом в этой же вкладке, ссылку ig.me перехватывает приложение
   if (inTelegram || !/Android|iPhone|iPad|iPod/i.test(ua)) return openLink(go.href);
+  const code = new URL(go.href).searchParams.get("ref");
+  // запасной путь: если Instagram не передаст код боту сам, покупатель вставит его в чат — бот подскажет
+  copyText(code);
   if (/Android/i.test(ua)) {
     const url = new URL(go.href);
     location.href = `intent://${url.host}${url.pathname}${url.search}#Intent;scheme=https;package=com.instagram.android;` +
@@ -378,9 +381,24 @@ function igOfferClick(e) {
   // приложение не открылось (страница так и осталась на экране) — подсказываем отправить код вручную
   setTimeout(() => {
     if (document.hidden || go.parentElement.querySelector(".ig-offer-manual")) return;
-    const code = new URL(go.href).searchParams.get("ref");
-    go.insertAdjacentHTML("afterend", `<p class="ig-offer-text ig-offer-manual">Директ не открылся? Откройте Instagram, напишите VEXA в директ код <b>${escapeHtml(code)}</b> — бот пришлёт заказ.</p>`);
+    go.insertAdjacentHTML("afterend", `<p class="ig-offer-text ig-offer-manual">Директ не открылся? Откройте Instagram, зайдите в директ VEXA и отправьте код <b>${escapeHtml(code)}</b> (он уже скопирован) — бот пришлёт заказ.</p>`);
   }, 2500);
+}
+
+// копирование прямо в нажатии: execCommand работает синхронно и во встроенных браузерах Instagram и Telegram
+function copyText(text) {
+  try {
+    const t = document.createElement("textarea");
+    t.value = text;
+    t.setAttribute("readonly", "");
+    t.style.cssText = "position:fixed;top:0;left:0;opacity:0;font-size:16px";
+    document.body.append(t);
+    t.select();
+    t.setSelectionRange(0, text.length);
+    const ok = document.execCommand("copy");
+    t.remove();
+    if (!ok) navigator.clipboard?.writeText(text).catch(() => {});
+  } catch { navigator.clipboard?.writeText(text).catch(() => {}); }
 }
 
 /* ---------- Мои заказы ---------- */
