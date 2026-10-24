@@ -1,5 +1,5 @@
 // Корзина, оформление заказа и «Мои заказы» покупателя.
-import { $, telegram, telegramUser, formatPrice, orderDate, escapeHtml, haptic, toast, on, storage, replayAnimation, copyToClipboard, openLink } from "./core.js?v=20261001b";
+import { $, telegram, inTelegram, telegramUser, formatPrice, orderDate, escapeHtml, haptic, toast, on, storage, replayAnimation, copyToClipboard, openLink } from "./core.js?v=20261001b";
 import { DELIVERY_METHODS } from "./data.js?v=20261001b";
 import { state, api, saveCart, findProduct, cartTotal, hasServer, useSupabase, hasOrdersBackend } from "./state.js?v=20261001b";
 import { watchOrders, supabaseUserId, instagramLinkCode, supabaseInBot } from "./supabase.js?v=20261001b";
@@ -361,7 +361,21 @@ async function showInstagramOffer(box, afterOrder = false) {
 
 function igOfferClick(e) {
   const go = e.target.closest("[data-ig-offer]");
-  if (go) { e.preventDefault(); haptic(); openLink(go.href); }
+  if (!go) return;
+  e.preventDefault();
+  haptic();
+  const ua = navigator.userAgent;
+  // в Telegram и на компьютере — как обычная ссылка; на телефоне сразу открываем приложение Instagram:
+  // переход в этой же вкладке (так iPhone и браузер внутри Instagram открывают директ в приложении),
+  // а Android — через intent: он запускает приложение, а если его нет, открывает ссылку в браузере
+  if (inTelegram || !/Android|iPhone|iPad|iPod/i.test(ua)) return openLink(go.href);
+  if (/Android/i.test(ua) && !/Instagram/i.test(ua)) {
+    const url = new URL(go.href);
+    location.href = `intent://${url.host}${url.pathname}${url.search}#Intent;scheme=https;package=com.instagram.android;` +
+      `S.browser_fallback_url=${encodeURIComponent(go.href)};end`;
+    return;
+  }
+  location.href = go.href;
 }
 
 /* ---------- Мои заказы ---------- */
