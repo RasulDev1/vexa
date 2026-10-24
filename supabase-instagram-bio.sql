@@ -103,6 +103,43 @@ end $$;
 revoke execute on function public.ig_bind(text, text, text, text) from public, anon, authenticated;
 grant execute on function public.ig_bind(text, text, text, text) to service_role;
 
+-- ---------- 2б. Привязка по телефону: код из ссылки не дошёл (веб-версия Instagram) ----------
+-- Покупатель пишет боту телефон, который указал в заказе. Подходят только заказы с сайта за последние 2 дня, ещё не
+-- привязанные ни к одному аккаунту; привязывается последний из них. Чтобы чужой номер нельзя было подбирать: не больше 5 неудачных попыток в час.
+create table if not exists public.ig_phone_tries (igsid text primary key, tries int not null default 0, last_at timestamptz not null default now());
+alter table public.ig_phone_tries enable row level security;
+
+create or replace function public.ig_bind_phone(p_phone text, p_igsid text, p_username text, p_name text)
+returns jsonb language plpgsql volatile security definer set search_path = '' as $$
+declare d text := right(regexp_replace(coalesce(p_phone, ''), '\D', '', 'g'), 10); t public.ig_phone_tries; g record; r jsonb; res jsonb;
+begin
+  if length(d) < 10 then return jsonb_build_object('error', 'bad_phone'); end if;
+  select * into t from public.ig_phone_tries where igsid = p_igsid;
+  if t.igsid is not null and t.last_at < now() - interval '1 hour' then
+    update public.ig_phone_tries set tries = 0 where igsid = p_igsid; t.tries := 0;
+  end if;
+  if coalesce(t.tries, 0) >= 5 then return jsonb_build_object('error', 'busy'); end if;
+  for g in
+    select u.user_id, u.link_code, max(o.id) as last_order
+    from public.orders o join public.ig_users u on u.user_id = o.user_id
+    where u.igsid is null and u.link_code is not null and o.created_at > now() - interval '2 days'
+      and right(regexp_replace(coalesce(o.phone, ''), '\D', '', 'g'), 10) = d
+    group by u.user_id, u.link_code order by last_order desc limit 1 -- только последний заказ с этим номером
+  loop
+    r := public.ig_bind(g.link_code, p_igsid, p_username, p_name);
+    if r ->> 'user_id' is not null then res := r; end if;
+  end loop;
+  if res is null then
+    insert into public.ig_phone_tries (igsid, tries) values (p_igsid, 1)
+    on conflict (igsid) do update set tries = public.ig_phone_tries.tries + 1, last_at = now();
+    return jsonb_build_object('error', 'no_order');
+  end if;
+  delete from public.ig_phone_tries where igsid = p_igsid;
+  return res;
+end $$;
+revoke execute on function public.ig_bind_phone(text, text, text, text) from public, anon, authenticated;
+grant execute on function public.ig_bind_phone(text, text, text, text) to service_role;
+
 -- ---------- 3. Уборка: покупатели с сайта, которые так и не оформили заказ ----------
 create or replace function public.ig_guests_cleanup()
 returns void language plpgsql security definer set search_path = '' as $$
@@ -128,6 +165,7 @@ notify pgrst, 'reload schema';
 
 -- ---------- Проверка: всё должно быть «true» ----------
 select exists (select 1 from pg_proc where proname = 'ig_guest_login') as "заказ с сайта без ссылки",
+       exists (select 1 from pg_proc where proname = 'ig_bind_phone')  as "привязка по телефону",
        exists (select 1 from pg_proc where proname = 'ig_bind')        as "привязка заказа к директу по коду",
        exists (select 1 from information_schema.columns
                where table_schema = 'public' and table_name = 'ig_users' and column_name = 'link_code') as "коды привязки";

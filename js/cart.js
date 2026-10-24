@@ -170,6 +170,7 @@ function photoLink(product, color) {
 }
 
 let placingOrder = false;
+let igPhone = ""; // телефон последнего заказа: по нему бот находит заказ, если Instagram не передал код (веб-версия)
 export async function placeOrder() {
   if (placingOrder) return;
   const method = DELIVERY_METHODS.find((m) => m.id === deliveryMethod);
@@ -186,6 +187,7 @@ export async function placeOrder() {
     return { ...line, name: p.name, colorName: colorName(p, line.color), price: p.price, photo: photoLink(p, line.color) };
   });
   const pay = payChoicesFor(method.id).find((c) => c.id === payChoice);
+  igPhone = phone;
   const order = { items, total: orderTotal(), name, phone, way: pay?.note ? `${method.title} · ${pay.note}` : method.title, addr };
   const button = $("placeOrder");
   placingOrder = button.disabled = true;
@@ -353,12 +355,13 @@ async function showInstagramOffer(box, afterOrder = false) {
   const link = await instagramLinkCode().catch(() => null);
   if (!link || !box.isConnected) return;
   const url = `https://ig.me/m/${encodeURIComponent(INSTAGRAM_USERNAME.replace(/^@/, ""))}?ref=${encodeURIComponent(link.code)}`;
+  const phone = igPhone || state.myOrders.find((o) => o.phone)?.phone || "";
   box.innerHTML = `<p class="ig-offer-title">${afterOrder ? "Получайте статус заказа в Instagram" : "Статус заказов — в директ Instagram"}</p>
     <ol class="ig-offer-steps"><li>Нажмите «Открыть директ VEXA».</li><li>В чате нажмите «📦 Мои заказы».</li></ol>
     <p class="ig-offer-text">Бот пришлёт заказ, а дальше — реквизиты, оплату и доставку.</p>
-    <a class="primary ig-offer-go" href="${url}" target="_blank" rel="noopener" data-ig-offer>Открыть директ VEXA</a>
-    <p class="ig-offer-text ig-offer-code">Бот не прислал заказ? Скопируйте код и отправьте его в директ VEXA.</p>
-    <button class="ghost ig-offer-copy" data-ig-copy="${escapeHtml(link.code)}">📋 Скопировать код ${escapeHtml(link.code)}</button>`;
+    <a class="primary ig-offer-go" href="${url}" target="_blank" rel="noopener" data-ig-offer data-ig-phone="${escapeHtml(phone)}">Открыть директ VEXA</a>
+    ${phone ? `<p class="ig-offer-text ig-offer-code">Бот не прислал заказ? Отправьте в директ VEXA номер телефона из заказа.</p>
+    <button class="ghost ig-offer-copy" data-ig-copy="${escapeHtml(phone)}">📋 Скопировать номер</button>` : ""}`;
   box.hidden = false;
 }
 
@@ -367,8 +370,8 @@ function igOfferClick(e) {
   if (copy) {
     copyText(copy.dataset.igCopy);
     haptic("success");
-    copy.textContent = "✅ Код скопирован";
-    setTimeout(() => (copy.textContent = `📋 Скопировать код ${copy.dataset.igCopy}`), 2000);
+    copy.textContent = "✅ Номер скопирован";
+    setTimeout(() => (copy.textContent = "📋 Скопировать номер"), 2000);
     return;
   }
   const go = e.target.closest("[data-ig-offer]");
@@ -380,9 +383,8 @@ function igOfferClick(e) {
   // Android — через intent (и в Chrome, и в браузере внутри Instagram): он запускает приложение, а без него
   // открывает ссылку в браузере; iPhone — переходом в этой же вкладке, ссылку ig.me перехватывает приложение
   if (inTelegram || !/Android|iPhone|iPad|iPod/i.test(ua)) return openLink(go.href);
-  const code = new URL(go.href).searchParams.get("ref");
-  // запасной путь: если Instagram не передаст код боту сам, покупатель вставит его в чат — бот подскажет
-  copyText(code);
+  // запасной путь: если Instagram не передаст код боту сам (веб-версия), покупатель вставит в чат телефон — бот подскажет
+  if (go.dataset.igPhone) copyText(go.dataset.igPhone);
   if (/Android/i.test(ua)) {
     const url = new URL(go.href);
     location.href = `intent://${url.host}${url.pathname}${url.search}#Intent;scheme=https;package=com.instagram.android;` +
@@ -391,7 +393,7 @@ function igOfferClick(e) {
   // приложение не открылось (страница так и осталась на экране) — подсказываем отправить код вручную
   setTimeout(() => {
     if (document.hidden || go.parentElement.querySelector(".ig-offer-manual")) return;
-    go.insertAdjacentHTML("afterend", `<p class="ig-offer-text ig-offer-manual">Директ не открылся? Закройте сайт, чтобы вернуться в Instagram, зайдите в директ VEXA и вставьте код — он уже скопирован. Бот пришлёт заказ.</p>`);
+    go.insertAdjacentHTML("afterend", `<p class="ig-offer-text ig-offer-manual">Директ не открылся? Закройте сайт, чтобы вернуться в Instagram, зайдите в директ VEXA и вставьте номер телефона — он уже скопирован. Бот пришлёт заказ.</p>`);
   }, 2500);
 }
 
