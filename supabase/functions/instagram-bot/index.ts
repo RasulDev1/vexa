@@ -416,7 +416,7 @@ async function chooseOrder(to: string, userId: number, orderId: number, accepted
 const LINK_CODE = /\bVX[0-9A-F]{8}\b/i;
 
 /** Код из ссылки не дошёл (веб-версия Instagram): покупатель присылает телефон из заказа — сайт скопировал его по кнопке */
-const PHONE = /^\+?[\d\s()-]{10,20}$/;
+const PHONE = /^\+?[\d\s().-]{5,25}$/; // любой номер, и иностранный: база сравнит его с телефоном из заказа
 
 async function bind(igsid: string, code: string, by: "code" | "phone" = "code"): Promise<Json> {
   // имя и логин — для CRM, если этого покупателя бот ещё не знает
@@ -452,7 +452,7 @@ async function handle(igsid: string, m: Json) {
   const text: string = String(m.text ?? "").trim();
   // команда боту — сразу «печатает…»; обычное сообщение может читать менеджер, там бот молчит
   const code = LINK_CODE.exec(String(m.ref ?? ""))?.[0] ?? LINK_CODE.exec(text)?.[0];
-  const phone = !code && !payload && PHONE.test(text) && text.replace(/\D/g, "").length >= 10 ? text : "";
+  const phone = !code && !payload && PHONE.test(text) && text.replace(/\D/g, "").length >= 5 ? text : "";
   if (payload || code || phone || ORDER_WORDS.test(text) || SHOP_WORDS.test(text)) { markSeen(igsid); typing(igsid); }
   // пришёл с сайта после заказа впервые — сначала приветствие, потом «Заказ оформлен»
   const fresh = (code || phone) ? await firstTime(igsid) : false;
