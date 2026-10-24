@@ -381,7 +381,7 @@ function igOfferClick(e) {
   // приложение не открылось (страница так и осталась на экране) — подсказываем отправить код вручную
   setTimeout(() => {
     if (document.hidden || go.parentElement.querySelector(".ig-offer-manual")) return;
-    go.insertAdjacentHTML("afterend", `<p class="ig-offer-text ig-offer-manual">Директ не открылся? Откройте Instagram, зайдите в директ VEXA и отправьте код <b>${escapeHtml(code)}</b> (он уже скопирован) — бот пришлёт заказ.</p>`);
+    go.insertAdjacentHTML("afterend", `<p class="ig-offer-text ig-offer-manual">Директ не открылся? Закройте сайт, чтобы вернуться в Instagram, зайдите в директ VEXA и вставьте код <b>${escapeHtml(code)}</b> — он уже скопирован. Бот пришлёт заказ.</p>`);
   }, 2500);
 }
 
