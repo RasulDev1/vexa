@@ -366,16 +366,20 @@ function igOfferClick(e) {
   haptic();
   const ua = navigator.userAgent;
   // в Telegram и на компьютере — как обычная ссылка; на телефоне сразу открываем приложение Instagram:
-  // переход в этой же вкладке (так iPhone и браузер внутри Instagram открывают директ в приложении),
-  // а Android — через intent: он запускает приложение, а если его нет, открывает ссылку в браузере
+  // Android — через intent (и в Chrome, и в браузере внутри Instagram): он запускает приложение, а без него
+  // открывает ссылку в браузере; iPhone — переходом в этой же вкладке, ссылку ig.me перехватывает приложение
   if (inTelegram || !/Android|iPhone|iPad|iPod/i.test(ua)) return openLink(go.href);
-  if (/Android/i.test(ua) && !/Instagram/i.test(ua)) {
+  if (/Android/i.test(ua)) {
     const url = new URL(go.href);
     location.href = `intent://${url.host}${url.pathname}${url.search}#Intent;scheme=https;package=com.instagram.android;` +
       `S.browser_fallback_url=${encodeURIComponent(go.href)};end`;
-    return;
-  }
-  location.href = go.href;
+  } else location.href = go.href;
+  // приложение не открылось (страница так и осталась на экране) — подсказываем отправить код вручную
+  setTimeout(() => {
+    if (document.hidden || go.parentElement.querySelector(".ig-offer-manual")) return;
+    const code = new URL(go.href).searchParams.get("ref");
+    go.insertAdjacentHTML("afterend", `<p class="ig-offer-text ig-offer-manual">Директ не открылся? Откройте Instagram, напишите VEXA в директ код <b>${escapeHtml(code)}</b> — бот пришлёт заказ.</p>`);
+  }, 2500);
 }
 
 /* ---------- Мои заказы ---------- */
