@@ -354,7 +354,7 @@ async function showInstagramOffer(box, afterOrder = false) {
   if (!link || !box.isConnected) return;
   const url = `https://ig.me/m/${encodeURIComponent(INSTAGRAM_USERNAME.replace(/^@/, ""))}?ref=${encodeURIComponent(link.code)}`;
   box.innerHTML = `<p class="ig-offer-title">${afterOrder ? "Получайте статус заказа в Instagram" : "Статус заказов — в директ Instagram"}</p>
-    <ol class="ig-offer-steps"><li>Нажмите «Открыть директ VEXA».</li><li>В чате нажмите «📦 Мои заказы».</li></ol>
+    <ol class="ig-offer-steps"><li>Нажмите «Открыть директ VEXA».</li><li>В чате нажмите «📦 Мои заказы». Нет кнопок (так бывает в веб-версии)? Напишите в чат: <b>Мои заказы</b>.</li></ol>
     <p class="ig-offer-text">Бот пришлёт заказ, а дальше — реквизиты, оплату и доставку.</p>
     <a class="primary ig-offer-go" href="${url}" target="_blank" rel="noopener" data-ig-offer>Открыть директ VEXA</a>
     <p class="ig-offer-text ig-offer-code">Бот не прислал заказ? Скопируйте код и отправьте его в директ VEXA.</p>
