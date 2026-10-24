@@ -103,6 +103,21 @@ end $$;
 revoke execute on function public.ig_bind(text, text, text, text) from public, anon, authenticated;
 grant execute on function public.ig_bind(text, text, text, text) to service_role;
 
+-- ---------- 2б. Без кода: свежие заказы с сайта, ещё не привязанные к директу ----------
+-- Бот спрашивает «Это ваш заказ?», если код из ссылки не дошёл (на iPhone ссылка иногда открывает веб-версию).
+-- Только заказы за последние 30 минут и только состав и сумма — без имени, телефона и адреса.
+create or replace function public.ig_recent_site_orders()
+returns jsonb language sql stable security definer set search_path = '' as $$
+  select coalesce(jsonb_agg(x order by x.created_at desc), '[]'::jsonb) from (
+    select u.link_code as code, o.id, o.total, o.items, o.created_at
+    from public.orders o join public.ig_users u on u.user_id = o.user_id
+    where u.igsid is null and u.link_code is not null and o.created_at > now() - interval '30 minutes'
+    order by o.created_at desc limit 3
+  ) x
+$$;
+revoke execute on function public.ig_recent_site_orders() from public, anon, authenticated;
+grant execute on function public.ig_recent_site_orders() to service_role;
+
 -- ---------- 3. Уборка: покупатели с сайта, которые так и не оформили заказ ----------
 create or replace function public.ig_guests_cleanup()
 returns void language plpgsql security definer set search_path = '' as $$
@@ -129,5 +144,6 @@ notify pgrst, 'reload schema';
 -- ---------- Проверка: всё должно быть «true» ----------
 select exists (select 1 from pg_proc where proname = 'ig_guest_login') as "заказ с сайта без ссылки",
        exists (select 1 from pg_proc where proname = 'ig_bind')        as "привязка заказа к директу по коду",
+       exists (select 1 from pg_proc where proname = 'ig_recent_site_orders') as "заказ без кода",
        exists (select 1 from information_schema.columns
                where table_schema = 'public' and table_name = 'ig_users' and column_name = 'link_code') as "коды привязки";

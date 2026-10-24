@@ -354,9 +354,9 @@ async function showInstagramOffer(box, afterOrder = false) {
   if (!link || !box.isConnected) return;
   const url = `https://ig.me/m/${encodeURIComponent(INSTAGRAM_USERNAME.replace(/^@/, ""))}?ref=${encodeURIComponent(link.code)}`;
   // iPhone: ссылка ig.me там часто открывает веб-версию Instagram, поэтому кнопка копирует код и открывает
-  // приложение на профиле магазина, а код покупатель вставляет в чат сам
+  // приложение на профиле магазина; бот сам спросит «Это ваш заказ?» (ig_recent_site_orders)
   const steps = isIOS() && !inTelegram
-    ? `<li>Нажмите «Открыть директ VEXA» — код скопируется, откроется профиль VEXA.</li><li>Нажмите «Сообщение» и вставьте код в чат.</li>`
+    ? `<li>Нажмите «Открыть директ VEXA» — откроется профиль VEXA.</li><li>Нажмите «Сообщение», затем «📦 Мои заказы».</li>`
     : `<li>Нажмите «Открыть директ VEXA».</li><li>В чате нажмите «📦 Мои заказы».</li>`;
   box.innerHTML = `<p class="ig-offer-title">${afterOrder ? "Получайте статус заказа в Instagram" : "Статус заказов — в директ Instagram"}</p>
     <ol class="ig-offer-steps">${steps}</ol>
@@ -375,39 +375,21 @@ function igOfferClick(e) {
   // Android — через intent (и в Chrome, и в браузере внутри Instagram): он запускает приложение, а без него
   // открывает ссылку в браузере; iPhone — схемой instagram:// на профиль магазина (ig.me там уводит в веб-версию)
   if (inTelegram || !/Android/i.test(ua) && !isIOS()) return openLink(go.href);
-  const code = new URL(go.href).searchParams.get("ref");
-  // запасной путь: если Instagram не передаст код боту сам, покупатель вставит его в чат — бот подскажет
-  copyText(code);
   if (/Android/i.test(ua)) {
     const url = new URL(go.href);
     location.href = `intent://${url.host}${url.pathname}${url.search}#Intent;scheme=https;package=com.instagram.android;` +
       `S.browser_fallback_url=${encodeURIComponent(go.href)};end`;
   } else location.href = `instagram://user?username=${encodeURIComponent(INSTAGRAM_USERNAME.replace(/^@/, ""))}`;
-  // приложение не открылось (страница так и осталась на экране) — подсказываем отправить код вручную
+  // приложение не открылось (страница так и осталась на экране) — подсказываем, как дойти до директа самому
   setTimeout(() => {
     if (document.hidden || go.parentElement.querySelector(".ig-offer-manual")) return;
-    go.insertAdjacentHTML("afterend", `<p class="ig-offer-text ig-offer-manual">Директ не открылся? Закройте сайт, чтобы вернуться в Instagram, зайдите в директ VEXA и вставьте код <b>${escapeHtml(code)}</b> — он уже скопирован. Бот пришлёт заказ.</p>`);
+    go.insertAdjacentHTML("afterend", `<p class="ig-offer-text ig-offer-manual">Директ не открылся? Закройте сайт, чтобы вернуться в Instagram, зайдите в директ VEXA и нажмите «📦 Мои заказы» — бот пришлёт заказ.</p>`);
   }, 2500);
 }
 
 // iPad с iPadOS 13+ представляется Mac'ом — отличаем по сенсорному экрану
 const isIOS = () => /iPhone|iPad|iPod/i.test(navigator.userAgent) || /Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 1;
 
-// копирование прямо в нажатии: execCommand работает синхронно и во встроенных браузерах Instagram и Telegram
-function copyText(text) {
-  try {
-    const t = document.createElement("textarea");
-    t.value = text;
-    t.setAttribute("readonly", "");
-    t.style.cssText = "position:fixed;top:0;left:0;opacity:0;font-size:16px";
-    document.body.append(t);
-    t.select();
-    t.setSelectionRange(0, text.length);
-    const ok = document.execCommand("copy");
-    t.remove();
-    if (!ok) navigator.clipboard?.writeText(text).catch(() => {});
-  } catch { navigator.clipboard?.writeText(text).catch(() => {}); }
-}
 
 /* ---------- Мои заказы ---------- */
 const ORDER_STATUS = { new: "Проверяем наличие", accepted: "Ждёт оплаты", paid: "Оплачен, готовим к отправке", delivered: "Вручён", rejected: "Отменён",

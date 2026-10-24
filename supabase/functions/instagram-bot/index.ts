@@ -304,11 +304,7 @@ async function sendOrders(to: string, userId: number) {
     console.error("orders", error);
     return say(to, "Не получилось загрузить заказы 😔 Попробуйте, пожалуйста, ещё раз через минуту.");
   }
-  if (!orders?.length) {
-    return sayWithShop(to, userId, "Сейчас у вас нет активных заказов.\n\n" +
-      "Только что оформили заказ на сайте? Вставьте сюда сообщением код — сайт скопировал его, когда вы нажали «Открыть директ VEXA». Бот сразу пришлёт заказ.\n\n" +
-      "Или загляните в каталог — новинки уже ждут 👇");
-  }
+  if (!orders?.length) return sayWithShop(to, userId, "Сейчас у вас нет активных заказов.\n\nЗагляните в каталог — новинки уже ждут 👇");
   const lines = orders.map((o: Json, i: number) => {
     const items = itemsOf(o);
     const what = String(items[0]?.name ?? "Заказ") + (items.length > 1 ? ` и ещё ${items.length - 1}` : "");
@@ -434,6 +430,26 @@ async function linked(to: string, userId: number) {
   return chooseOrder(to, userId, o.id);
 }
 
+/** Код из ссылки не дошёл (на iPhone ссылка ig.me иногда открывает веб-версию): покупатель нажал «Мои заказы» —
+    показываем свежие заказы с сайта, которые ещё ни к кому не привязаны, и спрашиваем, его ли это заказ */
+async function offerSiteOrders(to: string): Promise<boolean> {
+  const { data, error } = await db.rpc("ig_recent_site_orders");
+  if (error) console.error("ig_recent_site_orders", error);
+  if (!data?.length) return false;
+  const what = (o: Json) => {
+    const items = itemsOf(o);
+    return String(items[0]?.name ?? "Заказ") + (items[0]?.size ? ` ${items[0].size}` : "") +
+      (items.length > 1 ? ` и ещё ${items.length - 1}` : "") + ` · ${rub(o.total)}`;
+  };
+  if (data.length === 1) {
+    await say(to, `Это ваш заказ с сайта?\n\n${what(data[0])}`, [quick("✅ Да, мой", `BIND:${data[0].code}`), quick("Нет", "MY_ORDERS")]);
+  } else {
+    await say(to, `Какой из заказов с сайта ваш?\n\n${data.map((o: Json, i: number) => `${i + 1}. ${what(o)}`).join("\n")}`,
+      [...data.map((o: Json, i: number) => quick(`${i + 1}. Мой`, `BIND:${o.code}`)), quick("Нет моего", "MY_ORDERS")]);
+  }
+  return true;
+}
+
 const SHOP_WORDS = /^\/?(магазин|каталог|меню|старт|start|начать|главная|shop|🛍)/i;
 const ORDER_WORDS = /^(📦\s*)?мои заказы/i;
 
@@ -455,7 +471,17 @@ async function handle(igsid: string, m: Json) {
   const me = await customer(igsid);
   console.log(`  шаг: покупатель ${Date.now() - tc} мс`);
 
-  if (payload === "ORDERS" || ORDER_WORDS.test(text)) return sendOrders(igsid, me.id);
+  const bindCode = /^BIND:(VX[0-9A-F]{8})$/i.exec(payload)?.[1];
+  if (bindCode) {
+    const bound = await bind(igsid, bindCode);
+    if (bound?.user_id) return linked(igsid, Number(bound.user_id));
+    return say(igsid, "Этот заказ уже привязан к другому аккаунту. Если это ваш заказ — напишите сюда, менеджер поможет.", [Q_ORDERS]);
+  }
+  if (payload === "ORDERS" || ORDER_WORDS.test(text)) {
+    if (await offerSiteOrders(igsid)) return;
+    return sendOrders(igsid, me.id);
+  }
+  if (payload === "MY_ORDERS") return sendOrders(igsid, me.id);
   const orderId = Number(/^ORDER:(\d+)$/.exec(payload)?.[1]);
   if (orderId) return chooseOrder(igsid, me.id, orderId);
   if (payload === "CLOSE") return sendOrders(igsid, me.id); // кнопка «Закрыть чат» из старых сообщений
