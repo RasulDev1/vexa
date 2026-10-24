@@ -237,6 +237,42 @@ async function igsidOf(userId: number): Promise<string | null> {
   return data?.igsid ?? null;
 }
 
+/** Личная ссылка на сайт: по ключу из неё сайт узнаёт покупателя, и заказ с неё сразу привязан к его Instagram */
+const loginKeys = new Map<number, string>();
+async function shopLink(userId: number) {
+  let token = loginKeys.get(userId);
+  if (!token) {
+    const { data: last } = await db.from("ig_logins").select("token").eq("user_id", userId)
+      .order("created_at", { ascending: false }).limit(1).maybeSingle();
+    token = last?.token;
+  }
+  if (!token) {
+    token = encodeHex(crypto.getRandomValues(new Uint8Array(24)));
+    const { error } = await db.from("ig_logins").insert({ token, user_id: userId });
+    if (error) throw error;
+  }
+  loginKeys.set(userId, token);
+  const url = new URL(SHOP_URL);
+  url.searchParams.set("ig", token);
+  return url.href;
+}
+
+/** Приветствие на первое сообщение: карточка с кнопкой каталога (личная ссылка) и «📦 Мои заказы».
+    Кнопки быстрого ответа Instagram под такой карточкой не показывает. Шаблон не прошёл — ссылка текстом. */
+async function greet(to: string, userId: number) {
+  const text = "Здравствуйте! Это VEXA — мужская одежда для бега, зала и улицы 🏃\n\n" +
+    "🛍 Каталог — по кнопке ниже: заказ с этой ссылки сразу придёт сюда, в директ.\n" +
+    "Уже оформили заказ на сайте? Отправьте сюда номер телефона из заказа — бот пришлёт его.";
+  const url = await shopLink(userId);
+  const result = await ig({
+    recipient: { id: to },
+    message: { attachment: { type: "template", payload: { template_type: "button", text,
+      buttons: [{ type: "web_url", url, title: "🛍 Каталог" }, { type: "postback", title: "📦 Мои заказы", payload: "ORDERS" }] } } },
+  });
+  if (!sent(result)) return say(to, `${text}\n\n${url}`, [Q_ORDERS]);
+  return result;
+}
+
 /** Статус заказа — так, как его поймёт покупатель */
 const STATUS: Record<string, string> = {
   new: "🕐 Проверяем наличие", awaiting_payment: "💳 Ждём оплату", paid: "✅ Оплачен, готовим заказ",
@@ -427,9 +463,9 @@ async function handle(igsid: string, m: Json) {
   if (payload === "CLOSE") return sendOrders(igsid, me.id); // кнопка «Закрыть чат» из старых сообщений
   if (payload === "SHOP") return sendOrders(igsid, me.id); // кнопка «🛍 Магазин» из прежних сообщений
 
-  // Первое сообщение от нового человека: он мог прийти по кнопке с сайта, но Instagram не передал код (веб-версия,
-  // директ без кнопок) — подсказываем, как получить заказ. Дальше — обычная переписка: её читает менеджер, бот молчит
-  if (me.isNew) return say(igsid, "Здравствуйте! Чтобы получить заказ с сайта, отправьте сюда номер телефона, который указали при оформлении. Он уже скопирован при нажатии кнопки «Открыть директ VEXA», просто вставьте. Бот сразу пришлёт заказ.", [Q_ORDERS]);
+  // Первое сообщение от нового человека: приветствие с личной ссылкой на каталог, а пришедшему с сайта, чей код
+  // Instagram не передал (веб-версия), — подсказка прислать телефон. Дальше — обычная переписка: её читает менеджер, бот молчит
+  if (me.isNew) return greet(igsid, me.id);
 }
 
 /* ---------- Вызовы из базы (supabase-instagram.sql) ---------- */
