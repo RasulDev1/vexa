@@ -108,13 +108,11 @@ function db() {
 const fail = (error) => { throw { code: error?.code === "42501" ? "not_staff" : "server", raw: error }; };
 
 /** Вход при старте: база проверяет подпись Telegram, регистрирует пользователя и возвращает роль.
- *  guest — оформление заказа: без Telegram и ключа из директа покупатель заводится по сайту (guestLogin).
  *  Удачный вход запоминается; неудачный — нет, следующая попытка (например, «Подтвердить заказ») войдёт заново. */
-export function supabaseLogin(guest = false) {
+export function supabaseLogin() {
   if (me) return Promise.resolve(me);
   loginPromise ||= (async () => {
     if (!(await loadLibrary())) return fail_("no_library");             // не загрузилась ни своя копия, ни CDN
-    if (guest && !telegram?.initData && !viaInstagram && !(await guestLogin())) return null;
     const { data, error, status } = await db().rpc(viaInstagram ? "ig_login" : "tg_login");
     if (!error && data?.telegram_id) { loginError = null; return (me = data); }
     console.warn("Supabase tg_login:", status, error);
@@ -133,15 +131,16 @@ function fail_(reason) { loginError = reason; return null; }
 /** Вход покупателя при оформлении заказа: обычный, а не вышло без Telegram и ключа — по сайту */
 const customerLogin = async () => {
   const user = await supabaseLogin();
-  if (!user) return supabaseLogin(true);
-  // Заказ по ссылке из шапки, а директ уже привязан к аккаунту. В браузере Instagram сайт общий для всех аккаунтов
-  // на телефоне, поэтому каждый такой заказ заводим заново: он привяжется к тому аккаунту, из которого нажмут «Открыть директ»
-  if (user.channel === "instagram" && user.linked && storage.get(IG_GUEST_KEY, true) && !telegram?.initData) {
-    me = null;
-    if (!(await guestLogin())) return null;
-    return supabaseLogin();
-  }
-  return user;
+  if (telegram?.initData) return user;
+  // Новый покупатель с сайта, если: входа нет совсем; ключ устарел (покупателя удалили в базе);
+  // или директ уже привязан, а ключ выдан сайтом — в браузере Instagram сайт общий для всех аккаунтов на телефоне,
+  // поэтому каждый такой заказ привязывается к тому аккаунту, из которого нажмут «Открыть директ»
+  const fresh = user ? user.channel === "instagram" && user.linked && storage.get(IG_GUEST_KEY, true)
+    : !viaInstagram || loginError === "tg_ig_expired";
+  if (!fresh) return user;
+  me = null;
+  if (!(await guestLogin())) return null;
+  return supabaseLogin();
 };
 
 /** Вызов функции базы; ошибка — { code }: причина из базы (staff:…), no_function, network или server */
