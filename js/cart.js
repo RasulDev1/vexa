@@ -354,7 +354,8 @@ async function showInstagramOffer(box, afterOrder = false) {
   if (!link || !box.isConnected) return;
   const url = `https://ig.me/m/${encodeURIComponent(INSTAGRAM_USERNAME.replace(/^@/, ""))}?ref=${encodeURIComponent(link.code)}`;
   box.innerHTML = `<p class="ig-offer-title">${afterOrder ? "Получайте статус заказа в Instagram" : "Статус заказов — в директ Instagram"}</p>
-    <p class="ig-offer-text">В директе нажмите «📦 Мои заказы» — бот пришлёт заказ, а дальше реквизиты, оплату и доставку.</p>
+    <ol class="ig-offer-steps"><li>Нажмите «Открыть директ VEXA».</li><li>В чате нажмите «📦 Мои заказы».</li></ol>
+    <p class="ig-offer-text">Бот пришлёт заказ, а дальше — реквизиты, оплату и доставку.</p>
     <a class="primary ig-offer-go" href="${url}" target="_blank" rel="noopener" data-ig-offer>Открыть директ VEXA</a>`;
   box.hidden = false;
 }
