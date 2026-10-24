@@ -284,7 +284,7 @@ async function catalog(to: string, userId: number, text: string) {
 const greet = (to: string, userId: number, ordered = false) => catalog(to, userId,
   "Здравствуйте! Это VEXA — мужская одежда для бега, зала и улицы 🏃\n\n" +
   "🛍 Каталог — по кнопке ниже: заказ с этой ссылки сразу придёт сюда, в директ." +
-  (ordered ? "" : "\nУже оформили заказ на сайте? Отправьте сюда номер телефона из заказа — бот пришлёт его."));
+  (ordered ? "" : "\nОформили заказ на сайте? Напишите номер телефона, на который оформили."));
 
 /** Статус заказа — так, как его поймёт покупатель */
 const STATUS: Record<string, string> = {
@@ -312,7 +312,7 @@ async function sendOrders(to: string, userId: number) {
   }
   if (!orders?.length) {
     return say(to, "Сейчас у вас нет активных заказов.\n\n" +
-      "Только что оформили заказ на сайте? Отправьте сюда номер телефона из заказа — сайт скопировал его, когда вы нажали «Открыть директ VEXA». Бот сразу пришлёт заказ.", [Q_SHOP, Q_ORDERS]);
+      "Оформили заказ на сайте? Напишите номер телефона, на который оформили.", [Q_SHOP, Q_ORDERS]);
   }
   const lines = orders.map((o: Json, i: number) => {
     const items = itemsOf(o);
