@@ -263,7 +263,7 @@ async function sendOrders(to: string, userId: number) {
   }
   if (!orders?.length) {
     return say(to, "Сейчас у вас нет активных заказов.\n\n" +
-      "Только что оформили заказ на сайте? Вставьте сюда сообщением код — сайт скопировал его, когда вы нажали «Открыть директ VEXA». Бот сразу пришлёт заказ.", [Q_ORDERS]);
+      "Только что оформили заказ на сайте? Отправьте сюда номер телефона из заказа — сайт скопировал его, когда вы нажали «Открыть директ VEXA». Бот сразу пришлёт заказ.", [Q_ORDERS]);
   }
   const lines = orders.map((o: Json, i: number) => {
     const items = itemsOf(o);
@@ -366,14 +366,18 @@ async function chooseOrder(to: string, userId: number, orderId: number, accepted
    код приходит в ссылке ig.me/m/магазин?ref=код или текстом. По коду база привязывает его заказы к этому аккаунту. */
 const LINK_CODE = /\bVX[0-9A-F]{8}\b/i;
 
-async function bind(igsid: string, code: string): Promise<Json> {
+/** Код из ссылки не дошёл (веб-версия Instagram): покупатель присылает телефон из заказа — сайт скопировал его по кнопке */
+const PHONE = /^\+?[\d\s()-]{10,20}$/;
+
+async function bind(igsid: string, code: string, by: "code" | "phone" = "code"): Promise<Json> {
   // имя и логин — для CRM, если этого покупателя бот ещё не знает
   const profile = known.has(igsid) ? {} : await fetch(`${GRAPH}/${igsid}?fields=name,username`,
     { headers: { Authorization: `Bearer ${await token()}` } }).then((r) => r.json()).catch(() => ({}));
-  const { data, error } = await db.rpc("ig_bind", {
-    p_code: code, p_igsid: igsid, p_username: profile?.username ?? null, p_name: profile?.name ?? null,
+  const rpc = by === "phone" ? "ig_bind_phone" : "ig_bind";
+  const { data, error } = await db.rpc(rpc, {
+    [by === "phone" ? "p_phone" : "p_code"]: code, p_igsid: igsid, p_username: profile?.username ?? null, p_name: profile?.name ?? null,
   });
-  if (error) { console.error("ig_bind", error); return null; }
+  if (error) { console.error(rpc, error); return null; }
   if (data?.user_id) known.set(igsid, Number(data.user_id));
   return data;
 }
@@ -398,7 +402,14 @@ async function handle(igsid: string, m: Json) {
   const text: string = String(m.text ?? "").trim();
   // команда боту — сразу «печатает…»; обычное сообщение может читать менеджер, там бот молчит
   const code = LINK_CODE.exec(String(m.ref ?? ""))?.[0] ?? LINK_CODE.exec(text)?.[0];
-  if (payload || code || ORDER_WORDS.test(text)) { markSeen(igsid); typing(igsid); }
+  const phone = !code && !payload && PHONE.test(text) && text.replace(/\D/g, "").length >= 10 ? text : "";
+  if (payload || code || phone || ORDER_WORDS.test(text)) { markSeen(igsid); typing(igsid); }
+  if (phone) {
+    const bound = await bind(igsid, phone, "phone");
+    if (bound?.user_id) return linked(igsid, Number(bound.user_id));
+    if (bound?.error === "busy") return say(igsid, "Слишком много попыток. Попробуйте через час или напишите сюда, менеджер поможет.");
+    if (bound?.error === "no_order") return say(igsid, "Не нашёл заказ с этим номером за последние 2 дня 🤔 Проверьте, что номер тот же, что вы указали при оформлении на сайте.", [Q_ORDERS]);
+  }
   if (code) {
     const bound = await bind(igsid, code);
     if (bound?.user_id) return linked(igsid, Number(bound.user_id));
@@ -418,7 +429,7 @@ async function handle(igsid: string, m: Json) {
 
   // Первое сообщение от нового человека: он мог прийти по кнопке с сайта, но Instagram не передал код (веб-версия,
   // директ без кнопок) — подсказываем, как получить заказ. Дальше — обычная переписка: её читает менеджер, бот молчит
-  if (me.isNew) return say(igsid, "Здравствуйте! Чтобы получить заказ, напишите: Мои заказы", [Q_ORDERS]);
+  if (me.isNew) return say(igsid, "Здравствуйте! Чтобы получить заказ с сайта, отправьте сюда номер телефона, который указали при оформлении. Он уже скопирован при нажатии кнопки «Открыть директ VEXA», просто вставьте. Бот сразу пришлёт заказ.", [Q_ORDERS]);
 }
 
 /* ---------- Вызовы из базы (supabase-instagram.sql) ---------- */
