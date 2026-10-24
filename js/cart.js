@@ -356,6 +356,15 @@ async function showInstagramOffer(box, afterOrder = false) {
   if (!link || !box.isConnected) return;
   const url = `https://ig.me/m/${encodeURIComponent(INSTAGRAM_USERNAME.replace(/^@/, ""))}?ref=${encodeURIComponent(link.code)}`;
   const phone = igPhone || state.myOrders.find((o) => o.phone)?.phone || "";
+  const shop = escapeHtml(INSTAGRAM_USERNAME.replace(/^@/, ""));
+  // iPhone часто открывает ig.me в веб-версии Instagram, где код не доходит до бота: вместо кнопки — подсказка написать номер
+  if (!inTelegram && /iPhone|iPad|iPod/i.test(navigator.userAgent)) {
+    box.innerHTML = `<p class="ig-offer-title">${afterOrder ? "Получайте статус заказа в Instagram" : "Статус заказов — в директ Instagram"}</p>
+    <p class="ig-offer-text">Зайдите в директ @${shop} и напишите номер телефона, на который оформили заказ${phone ? `: <b>${escapeHtml(phone)}</b>` : ""}. Бот пришлёт заказ, а дальше — реквизиты, оплату и доставку.</p>
+    ${phone ? `<button class="ghost ig-offer-copy" data-ig-copy="${escapeHtml(phone)}">📋 Скопировать номер</button>` : ""}`;
+    box.hidden = false;
+    return;
+  }
   box.innerHTML = `<p class="ig-offer-title">${afterOrder ? "Получайте статус заказа в Instagram" : "Статус заказов — в директ Instagram"}</p>
     <ol class="ig-offer-steps"><li>Нажмите «Открыть директ VEXA».</li><li>В чате нажмите «📦 Мои заказы».</li></ol>
     <p class="ig-offer-text">Бот пришлёт заказ, а дальше — реквизиты, оплату и доставку.</p>
