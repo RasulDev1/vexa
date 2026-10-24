@@ -230,6 +230,13 @@ async function customer(igsid: string): Promise<{ id: number; isNew: boolean }> 
   return { id: Number(data.user_id), isNew: true };
 }
 
+/** Пишет боту впервые: такого igsid ещё нет в базе — приветствие получает и тот, кто пришёл с сайта после заказа */
+async function firstTime(igsid: string) {
+  if (known.has(igsid)) return false;
+  const { data } = await db.from("ig_users").select("user_id").eq("igsid", igsid).maybeSingle();
+  return !data;
+}
+
 async function igsidOf(userId: number): Promise<string | null> {
   for (const [igsid, id] of known) if (id === userId) return igsid;
   const { data } = await db.from("ig_users").select("igsid").eq("user_id", userId).maybeSingle();
@@ -259,10 +266,10 @@ async function shopLink(userId: number) {
 
 /** Приветствие на первое сообщение: карточка с кнопкой каталога (личная ссылка) и «📦 Мои заказы».
     Кнопки быстрого ответа Instagram под такой карточкой не показывает. Шаблон не прошёл — ссылка текстом. */
-async function greet(to: string, userId: number) {
+async function greet(to: string, userId: number, ordered = false) {
   const text = "Здравствуйте! Это VEXA — мужская одежда для бега, зала и улицы 🏃\n\n" +
-    "🛍 Каталог — по кнопке ниже: заказ с этой ссылки сразу придёт сюда, в директ.\n" +
-    "Уже оформили заказ на сайте? Отправьте сюда номер телефона из заказа — бот пришлёт его.";
+    "🛍 Каталог — по кнопке ниже: заказ с этой ссылки сразу придёт сюда, в директ." +
+    (ordered ? "" : "\nУже оформили заказ на сайте? Отправьте сюда номер телефона из заказа — бот пришлёт его.");
   const url = await shopLink(userId);
   const result = await ig({
     recipient: { id: to },
@@ -440,15 +447,18 @@ async function handle(igsid: string, m: Json) {
   const code = LINK_CODE.exec(String(m.ref ?? ""))?.[0] ?? LINK_CODE.exec(text)?.[0];
   const phone = !code && !payload && PHONE.test(text) && text.replace(/\D/g, "").length >= 10 ? text : "";
   if (payload || code || phone || ORDER_WORDS.test(text)) { markSeen(igsid); typing(igsid); }
+  // пришёл с сайта после заказа впервые — сначала приветствие, потом «Заказ оформлен»
+  const fresh = (code || phone) ? await firstTime(igsid) : false;
+  const welcome = async (userId: number) => { if (fresh) await greet(igsid, userId, true); return linked(igsid, userId); };
   if (phone) {
     const bound = await bind(igsid, phone, "phone");
-    if (bound?.user_id) return linked(igsid, Number(bound.user_id));
+    if (bound?.user_id) return welcome(Number(bound.user_id));
     if (bound?.error === "busy") return say(igsid, "Слишком много попыток. Попробуйте через час или напишите сюда, менеджер поможет.");
     if (bound?.error === "no_order") return say(igsid, "Не нашёл заказ с этим номером за последние 2 дня 🤔 Проверьте, что номер тот же, что вы указали при оформлении на сайте.", [Q_ORDERS]);
   }
   if (code) {
     const bound = await bind(igsid, code);
-    if (bound?.user_id) return linked(igsid, Number(bound.user_id));
+    if (bound?.user_id) return welcome(Number(bound.user_id));
     // код набран руками и не подошёл — подскажем; неподходящий код из ссылки молча пропускаем
     if (!m.ref && bound?.error) return say(igsid, "Этот код не подошёл 🤔 Откройте директ кнопкой «Открыть директ VEXA» на сайте после заказа или проверьте код во вкладке «Мои заказы».");
   }
@@ -463,8 +473,8 @@ async function handle(igsid: string, m: Json) {
   if (payload === "CLOSE") return sendOrders(igsid, me.id); // кнопка «Закрыть чат» из старых сообщений
   if (payload === "SHOP") return sendOrders(igsid, me.id); // кнопка «🛍 Магазин» из прежних сообщений
 
-  // Первое сообщение от нового человека: приветствие с личной ссылкой на каталог, а пришедшему с сайта, чей код
-  // Instagram не передал (веб-версия), — подсказка прислать телефон. Дальше — обычная переписка: её читает менеджер, бот молчит
+  // Первое сообщение от нового человека (любое): приветствие с личной ссылкой на каталог и подсказкой прислать телефон,
+  // если заказ уже есть, а код Instagram не передал (веб-версия). Дальше — обычная переписка: её читает менеджер, бот молчит
   if (me.isNew) return greet(igsid, me.id);
 }
 
