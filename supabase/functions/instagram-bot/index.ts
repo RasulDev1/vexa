@@ -1,7 +1,7 @@
 // VEXA · бот магазина в директе Instagram (Supabase Edge Function «instagram-bot»).
 // Тот же магазин, что в Telegram: покупатель получает личную ссылку на сайт, заказывает, видит «Мои заказы»
-// и переписывается с менеджером по заказу. Заказы и переписка — в той же базе и той же CRM (supabase-instagram.sql).
-// Сообщения без выбранного заказа бот не трогает: менеджер отвечает на них как обычно, в приложении Instagram.
+// и получает статусы заказа в директ. Заказы — в той же базе и той же CRM (supabase-instagram.sql).
+// Чатов по заказам в директе нет: обычные сообщения бот не трогает, менеджер отвечает на них в приложении Instagram.
 // Заказ по ссылке из шапки профиля (supabase-instagram-bio.sql): после заказа сайт даёт кнопку в директ с кодом
 // (ig.me/m/магазин?ref=код). Код приходит боту — он привязывает заказ к аккаунту и пишет «Заказ оформлен».
 // В Meta → Webhooks должно быть включено поле messaging_referral (вместе с messages и messaging_postbacks).
@@ -16,7 +16,6 @@
 // SUPABASE_URL и SUPABASE_SERVICE_ROLE_KEY Supabase подставляет сам.
 // Verify JWT у функции выключите: Instagram присылает запросы без ключа Supabase.
 import { createClient } from "jsr:@supabase/supabase-js@2";
-import { encodeBase64 } from "jsr:@std/encoding@1/base64";
 import { encodeHex } from "jsr:@std/encoding@1/hex";
 
 const ENV_TOKEN = Deno.env.get("IG_ACCESS_TOKEN") ?? "";
@@ -25,7 +24,6 @@ const APP_SECRET = Deno.env.get("IG_APP_SECRET") ?? "";
 const VERIFY_TOKEN = Deno.env.get("IG_VERIFY_TOKEN") ?? "";
 const SHOP_URL = Deno.env.get("SHOP_URL") ?? "https://rasuldev1.github.io/vexa/";
 const GRAPH = "https://graph.instagram.com/v23.0";
-const MAX_FILE = 3 * 1024 * 1024; // как в чате на сайте
 const MAX_TEXT = 1000;            // Instagram не принимает сообщения длиннее
 
 // Подсказка в логах, если забыли добавить секреты
@@ -206,7 +204,6 @@ async function say(to: string, text: string, quick?: Json[]) {
 const quick = (title: string, payload: string) => ({ content_type: "text", title: title.slice(0, 20), payload });
 const Q_ORDERS = quick("📦 Мои заказы", "ORDERS");
 const Q_SHOP = quick("🛍 Магазин", "SHOP");
-const Q_CLOSE = quick("✖️ Закрыть чат", "CLOSE");
 
 /* ---------- Покупатель ----------
    В базе — под отрицательным ID (ig_users): так все заказы, чат и CRM работают как с Telegram ID. */
@@ -297,16 +294,12 @@ const itemsOf = (o: Json): Json[] => (Array.isArray(o.items) ? o.items : []);
 /** Ссылка на оплату картой онлайн (функция online-pay), которую CRM кладёт в реквизиты */
 const ONLINE_PAY = /\/functions\/v1\/online-pay\?order=\d+&sig=[0-9a-f]+/;
 const ACTIVE = ["new", "awaiting_payment", "paid"];
-const OPEN = ["awaiting_payment", "paid"]; // по этим заказам можно писать менеджеру
+const OPEN = ["awaiting_payment", "paid"]; // заказ подтверждён: вопросы по нему — менеджеру прямо в директе
 
-/** Чат с менеджером закрыт: сообщения покупателя больше не уходят в чат заказа */
-const closeChat = (userId: number) => db.from("bot_chat_state").delete().eq("telegram_id", userId);
-
-/** «Мои заказы»: активные заказы списком и кнопкой на каждый — нажал, и сообщения уходят менеджеру по этому заказу */
+/** «Мои заказы»: активные заказы списком и кнопкой на каждый — нажал, и бот показывает заказ */
 async function sendOrders(to: string, userId: number) {
-  const [, { data: orders, error }] = await Promise.all([closeChat(userId),
-    db.from("orders").select("id,status,total,items,created_at")
-      .eq("user_id", userId).in("status", ACTIVE).order("id", { ascending: false }).limit(10)]);
+  const { data: orders, error } = await db.from("orders").select("id,status,total,items,created_at")
+    .eq("user_id", userId).in("status", ACTIVE).order("id", { ascending: false }).limit(10);
   if (error) {
     console.error("orders", error);
     return say(to, "Не получилось загрузить заказы 😔 Попробуйте, пожалуйста, ещё раз через минуту.");
@@ -317,7 +310,7 @@ async function sendOrders(to: string, userId: number) {
     const what = String(items[0]?.name ?? "Заказ") + (items.length > 1 ? ` и ещё ${items.length - 1}` : "");
     return `${i + 1}. ${day(o.created_at)} · ${what} · ${rub(o.total)}\n${STATUS[o.status] ?? ""}`;
   });
-  return say(to, `${orders.length === 1 ? "Ваш заказ" : "Ваши заказы"} 👇 Нажмите на нужный, чтобы посмотреть детали и написать менеджеру.\n\n${lines.join("\n\n")}`,
+  return say(to, `${orders.length === 1 ? "Ваш заказ" : "Ваши заказы"} 👇 Нажмите на нужный, чтобы посмотреть детали.\n\n${lines.join("\n\n")}`,
     [...orders.map((o: Json, i: number) => quick(`${i + 1}. ${shortDay(o.created_at)} · ${rub(o.total)}`, `ORDER:${o.id}`)), Q_SHOP]);
 }
 
@@ -378,7 +371,7 @@ async function sendPhotos(to: string, items: Json[]) {
   await Promise.all(urls.map((url) => ig({ recipient: { id: to }, message: { attachment: { type: "image", payload: { url } } } })));
 }
 
-/** Покупатель нажал на заказ: фото, дата, состав, статус. Запоминаем — следующие сообщения уйдут менеджеру по нему.
+/** Покупатель нажал на заказ: фото, дата, состав, статус.
     accepted — менеджер только что принял заказ и отправил реквизиты: бот открывает заказ сам. */
 async function chooseOrder(to: string, userId: number, orderId: number, accepted = false) {
   const { data: o } = await db.from("orders")
@@ -386,8 +379,7 @@ async function chooseOrder(to: string, userId: number, orderId: number, accepted
     .eq("id", orderId).eq("user_id", userId).maybeSingle();
   if (!o || !ACTIVE.includes(o.status)) return say(to, "Этот заказ уже завершён. Нажмите «📦 Мои заказы», чтобы увидеть актуальные.", [Q_SHOP, Q_ORDERS]);
   const items = itemsOf(o);
-  await Promise.all([sendPhotos(to, items), OPEN.includes(o.status)
-    ? db.from("bot_chat_state").upsert({ telegram_id: userId, order_id: o.id, updated_at: new Date().toISOString() }) : null]);
+  await sendPhotos(to, items);
   const lines = items.map((l) => `• ${l.name} — ${String(l.colorName ?? "").toLowerCase()}, размер ${l.size}${Number(l.qty) > 1 ? `, ${l.qty} шт.` : ""}`);
   let text = `${accepted ? "✅ Заказ принят! " : "🛍 "}Ваш заказ от ${day(o.created_at)}\n\n${lines.join("\n")}\n\nСумма: ${rub(o.total)}\nСтатус: ${STATUS[o.status] ?? o.status}`;
   if (o.status === "awaiting_payment" && o.payment_details) {
@@ -401,34 +393,13 @@ async function chooseOrder(to: string, userId: number, orderId: number, accepted
     }
   }
   if (OPEN.includes(o.status)) {
-    text += "\n\n✍️ Есть вопрос? Просто напишите сюда — менеджер ответит в этом чате. Закончили — нажмите «Закрыть чат».";
-    return say(to, text, [Q_SHOP, Q_CLOSE, Q_ORDERS]);
+    text += "\n\n✍️ Есть вопрос? Просто напишите сюда — ответит менеджер.";
+    return say(to, text, [Q_SHOP, Q_ORDERS]);
   }
   text += "\n\nМенеджер проверяет, всё ли есть в наличии. Как только заказ будет подтверждён, реквизиты для оплаты придут сюда.";
   return say(to, text, [Q_SHOP, Q_ORDERS]);
 }
 
-const FILE_TYPES = ["image/jpeg", "image/png", "image/webp", "application/pdf"]; // как в Telegram-боте и чате на сайте
-const EXT: Record<string, string> = { "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp", "application/pdf": "pdf" };
-
-/** Фото или PDF из директа → base64 для чата заказа. null — не скачался, не тот формат или больше 3 МБ. */
-async function download(url: string) {
-  const response = await fetch(url).catch(() => null);
-  const type = (response?.headers.get("content-type") ?? "").split(";")[0].trim();
-  if (!response?.ok || !FILE_TYPES.includes(type)) return null;
-  const bytes = new Uint8Array(await response.arrayBuffer());
-  if (bytes.length > MAX_FILE) return null;
-  return { name: `${type === "application/pdf" ? "файл" : "фото"}.${EXT[type]}`, type, data: encodeBase64(bytes) };
-}
-
-const NO_ORDER = "Написать менеджеру по заказу можно, когда он подтвердит заказ — обычно это быстро 🙂\n\n" +
-  "Статус заказа всегда можно посмотреть в «📦 Мои заказы».";
-const ERRORS: Record<string, string> = {
-  too_many: "Вы отправили много сообщений подряд — передохнём пару минут, и можно продолжить 🙂",
-  too_many_files: "К этому заказу уже прикреплено много файлов. Опишите, пожалуйста, вопрос текстом.",
-  closed: "Этот заказ уже завершён. Нажмите «📦 Мои заказы», чтобы выбрать актуальный.",
-};
-const SEND_FAILED = "Не получилось отправить сообщение 😔 Попробуйте, пожалуйста, ещё раз через минуту.";
 // «/start», «старт», «начать» — как /start в Telegram: заново показывают приветствие
 /* ---------- Покупатель с сайта подключает директ ----------
    Заказал по ссылке из шапки профиля (supabase-instagram-bio.sql) и нажал на сайте «Открыть директ VEXA»:
@@ -483,44 +454,12 @@ async function handle(igsid: string, m: Json) {
   if (payload === "ORDERS" || ORDER_WORDS.test(text)) return sendOrders(igsid, me.id);
   const orderId = Number(/^ORDER:(\d+)$/.exec(payload)?.[1]);
   if (orderId) return chooseOrder(igsid, me.id, orderId);
-  if (payload === "CLOSE") {
-    await closeChat(me.id);
-    // после закрытия чата — «главная»: карточка с кнопками магазина и заказов
-    return sayWithShop(igsid, me.id, "Чат по заказу закрыт — ваши сообщения больше не уходят в заказ.\n\n" +
-      "🛍 Каталог — по кнопке ниже.\n📦 Чтобы написать по заказу снова, откройте его в «Мои заказы».");
-  }
+  if (payload === "CLOSE") return sendOrders(igsid, me.id); // кнопка «Закрыть чат» из старых сообщений
   // кнопка «🛍 Магазин» — сразу ссылка на каталог, как /shop в Telegram; слова «магазин», «старт» — приветствие
   if (payload === "SHOP") return sayWithShop(igsid, me.id, "Каталог VEXA 👇");
   if (SHOP_WORDS.test(text)) return greet(igsid, me.id);
 
-  // Заказ выбран (в «Мои заказы» или менеджер написал по нему) — сообщение уходит в чат заказа
-  const { data: chosen } = await db.from("bot_chat_state").select("order_id").eq("telegram_id", me.id).maybeSingle();
-  if (!chosen?.order_id) {
-    // Бот включается заказом на сайте (код из кнопки) или командой. Остальное читает менеджер в приложении Instagram.
-    return;
-  }
-  const attachment = (Array.isArray(m.attachments) ? m.attachments : [])
-    .find((a: Json) => ["image", "file"].includes(a?.type) && a.payload?.url);
-  let file: { name: string; type: string; data: string } | null = null;
-  if (attachment) {
-    file = await download(attachment.payload.url);
-    if (!file) {
-      return say(igsid, attachment.type === "image" ? "Фото не получилось передать менеджеру. Пришлите, пожалуйста, скриншот поменьше."
-        : "Такой файл не получится передать. Пришлите, пожалуйста, фото, скриншот или PDF до 3 МБ.");
-    }
-  }
-  if (!text && !file) return; // стикер, реакция, видео — в заказ не передаём
-  const { data, error } = await db.rpc("bot_customer_message", {
-    p_telegram_id: me.id, p_order_id: chosen.order_id, p_body: text || null,
-    p_file_name: file?.name ?? null, p_file_type: file?.type ?? null, p_file_data: file?.data ?? null,
-  });
-  if (error) {
-    console.error("bot_customer_message", error);
-    return say(igsid, SEND_FAILED);
-  }
-  if (data?.error === "no_open_order") return say(igsid, NO_ORDER, [Q_SHOP, Q_ORDERS]);
-  if (data?.error) return say(igsid, ERRORS[data.error] ?? SEND_FAILED, [Q_SHOP, Q_ORDERS]);
-  // Сообщение передано менеджеру — бот ничего не отвечает
+  // Остальное — обычная переписка: её читает и отвечает менеджер в приложении Instagram, бот молчит
 }
 
 /* ---------- Вызовы из базы (supabase-instagram.sql) ---------- */
