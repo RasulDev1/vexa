@@ -1,7 +1,6 @@
 // Навигация: всплывающая шторка, вкладки «Корзина · Мои заказы · Товары», главная кнопка Telegram.
 import { $, telegram, inTelegram, formatPrice, haptic, replayAnimation, emit } from "./core.js?v=20261001b";
 import { state, cartCount, cartTotal } from "./state.js?v=20261001b";
-import { addSelectedToCart } from "./shop.js?v=20261001b";
 import { renderCartPage, openCheckout, placeOrder, renderMyOrders } from "./cart.js?v=20261001b";
 
 export const sheetBody = $("sheetBody");
@@ -69,6 +68,7 @@ function setMainButton(text, handler) {
   if (mainButtonHandler) button.offClick(mainButtonHandler);
   mainButtonHandler = text ? handler : null;
   if (!text) return button.hide();
+  button.setParams?.({ color: "#F2C400", text_color: "#0E2A47" }); // фирменные цвета Vexa
   button.setText(text);
   button.onClick(handler);
   button.show();
@@ -76,10 +76,11 @@ function setMainButton(text, handler) {
 
 export function syncMainButton() {
   const count = cartCount(), total = formatPrice(cartTotal());
-  const byView = { product: ["Добавить в корзину", addSelectedToCart], checkout: ["Подтвердить заказ", placeOrder] };
+  // в карточке товара свои кнопки «В корзину» и «Купить» — главная кнопка Telegram там не нужна
+  const byView = { checkout: ["Подтвердить заказ", placeOrder] };
   if (state.isAdmin) setMainButton(null); // сотруднику корзина не нужна
   else if (state.view) setMainButton(...(byView[state.view] || [null]));
-  else if (state.tab === "cart") setMainButton(count ? `Оформить заказ · ${total}` : null, openCheckout);
+  else if (state.tab === "cart") setMainButton(count ? `Оформить заказ · ${total}` : null, () => openCheckout());
   else if (state.tab === "shop") setMainButton(count ? `Корзина · ${count} шт · ${total}` : null, openCart);
   else setMainButton(null);
 

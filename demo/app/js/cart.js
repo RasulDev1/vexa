@@ -8,7 +8,7 @@ import { colorName, swatchBackground, stockLeft, refreshCatalog } from "./catalo
 import { productImage } from "./photos.js?v=20261001b";
 import { sheetBody, openSheet, closeSheet, setTab, openCart, syncMainButton } from "./nav.js?v=20261001b";
 import { chatButtonHtml, openChat, onChatEvent } from "./chat.js?v=20261001b";
-import { openProduct } from "./shop.js?v=20261001b";
+import { openProduct, reopenProduct } from "./shop.js?v=20261001b";
 import { loadMyReviews } from "./reviews.js?v=20261001b";
 
 const tint = (color) => `color-mix(in srgb, ${color} 14%, var(--bg))`;
@@ -71,11 +71,33 @@ let source = "";
 const askSource = () => useSupabase && Boolean(api.customerSourceAnswer) && !state.myOrders.length && !storage.get("temp_source_sent", false);
 const addressDrafts = {}; // введённый адрес не теряется при переключении способа доставки
 
-export function openCheckout() {
+/** «Купить» в карточке товара: оформляется только этот товар, корзина остаётся как была */
+let buyNowLine = null;
+const orderLines = () => buyNowLine ? [buyNowLine] : state.cart;
+const orderTotal = () => buyNowLine ? buyNowLine.qty * (findProduct(buyNowLine.id)?.price || 0) : cartTotal();
+function clearOrderedCart() {
+  if (buyNowLine) return;
+  state.cart = [];
+  saveCart();
+}
+
+/** Короткая строка с товаром вверху оформления «Купить» */
+function buyNowSummaryHtml(line) {
+  const p = findProduct(line.id);
+  return p ? `<div class="line buy-line">
+    <div class="thumb" style="background:${tint(line.color)}">${productImage(p, line.color, { thumb: true })}</div>
+    <div><p class="t">${p.name}</p><p class="s">${colorName(p, line.color)} · размер ${line.size}</p></div>
+    <b class="cost">${formatPrice(p.price)}</b></div>` : "";
+}
+
+/** line — товар из «Купить»; без него оформляется вся корзина */
+export function openCheckout(line = null) {
+  buyNowLine = line?.size ? line : null;
   if (useSupabase && api.warmPayment && onlinePayOn()) api.warmPayment(); // оплата откроется быстрее
   // ФИО с прошлого заказа на этом устройстве, иначе — имя и фамилия из Telegram
   const saved = storage.get("temp_customer_fio", null) || { last: telegramUser?.last_name || "", first: telegramUser?.first_name || "", middle: "" };
-  sheetBody.innerHTML = `<div class="grab"></div><h2 class="p-name">Доставка</h2>
+  sheetBody.innerHTML = `<div class="grab"></div>${buyNowLine ? `<h2 class="p-name">Покупка</h2>${buyNowSummaryHtml(buyNowLine)}` : ""}
+    <h2 class="p-name${buyNowLine ? " sub" : ""}">Доставка</h2>
     <label class="field"><span>Фамилия</span><input id="customerLast" autocomplete="family-name" value="${escapeHtml(saved.last || "")}"></label>
     <label class="field"><span>Имя</span><input id="customerFirst" autocomplete="given-name" value="${escapeHtml(saved.first || "")}"></label>
     <label class="field"><span>Отчество, если есть</span><input id="customerMiddle" autocomplete="additional-name" value="${escapeHtml(saved.middle || "")}"></label>
@@ -89,7 +111,7 @@ export function openCheckout() {
     ${askSource() ? `<p class="label">Откуда вы о нас узнали? <small>необязательно</small></p>
     <div class="sources">${SOURCES.map((s) => `<button class="chip" data-source="${s}" aria-pressed="${s === source}">${s}</button>`).join("")}</div>` : ""}
     <p class="hint" id="hint"></p>
-    <div class="total"><span>К оплате</span><b>${formatPrice(cartTotal())}</b></div>
+    <div class="total"><span>К оплате</span><b>${formatPrice(orderTotal())}</b></div>
     <button class="primary browser-only" id="placeOrder">Подтвердить заказ</button>`;
   renderAddressField();
   renderPayChoices();
@@ -114,7 +136,8 @@ export function openCheckout() {
     }
     if (e.target.id === "placeOrder") placeOrder();
   };
-  openSheet("checkout", openCart);
+  const back = buyNowLine;
+  openSheet("checkout", back ? () => reopenProduct(back) : openCart);
 }
 
 function renderPayChoices() {
@@ -158,12 +181,12 @@ export async function placeOrder() {
     return haptic("medium");
   }
   storage.set("temp_customer_fio", fio); // в следующий раз подставим
-  const items = state.cart.map((line) => {
+  const items = orderLines().map((line) => {
     const p = findProduct(line.id);
     return { ...line, name: p.name, colorName: colorName(p, line.color), price: p.price, photo: photoLink(p, line.color) };
   });
   const pay = payChoicesFor(method.id).find((c) => c.id === payChoice);
-  const order = { items, total: cartTotal(), name, phone, way: pay?.note ? `${method.title} · ${pay.note}` : method.title, addr };
+  const order = { items, total: orderTotal(), name, phone, way: pay?.note ? `${method.title} · ${pay.note}` : method.title, addr };
   const button = $("placeOrder");
   placingOrder = button.disabled = true;
   button.textContent = "Оформляем…";
@@ -178,8 +201,7 @@ export async function placeOrder() {
       api.customerSourceAnswer(source).catch(() => {}); // ответ не обязателен: заказ уже оформлен
     }
     rememberOrder({ ...order, num, date: new Date().toISOString(), status: "new" });
-    state.cart = [];
-    saveCart();
+    clearOrderedCart();
     const payHere = useSupabase && payWayOf(order) === "online" && onlinePayOn(); // онлайн-оплата — кнопка прямо в этом окне
     showOrderPlaced(items, useSupabase ? "Заказ принят автоматически. Реквизиты или ссылка на оплату появятся сразу здесь, во вкладке «Мои заказы», и придут в чат бота." : undefined, payHere ? num : 0, payWayOf(order) === "online");
     if (payHere) waitPayButton(num);
@@ -190,6 +212,7 @@ export async function placeOrder() {
     haptic("medium");
     if (error.code === "conflict") {
       await refreshCatalog();
+      if (buyNowLine) { toast("Этот размер закончился"); return reopenProduct(buyNowLine); }
       toast("Часть товара закончилась, корзина обновлена");
       return openCart();
     }
@@ -228,8 +251,7 @@ function sendOrderToManager(order) {
   navigator.clipboard?.writeText(text).catch(() => {}); // на случай, если текст не подставится в чат
   openLink(`https://t.me/${MANAGER_USERNAME.replace(/^@/, "")}?text=${encodeURIComponent(text)}`);
   rememberOrder({ ...order, num, date: new Date().toISOString(), status: "new" });
-  state.cart = [];
-  saveCart();
+  clearOrderedCart();
   showOrderPlaced(order.items, "Отправьте сообщение в открывшемся чате с менеджером — он подтвердит наличие и пришлёт реквизиты для оплаты. Текст заказа также скопирован.");
 }
 
@@ -257,8 +279,7 @@ async function payInWindow(order, items) {
       storage.set("temp_source_sent", true);
       api.customerSourceAnswer(source).catch(() => {});
     }
-    state.cart = [];
-    saveCart();
+    clearOrderedCart();
     renderMyOrders(true); // настоящий статус и сумма оплаты — из базы
     showOrderPlaced(items, "Спасибо! Оплата прошла, заказ оформлен. Менеджер подготовит его к отправке, статус виден во вкладке «Мои заказы».");
   };

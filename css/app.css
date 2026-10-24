@@ -82,7 +82,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
 /* ---------- Панель корзины в браузере ---------- */
 .cartbar { position: fixed; left: 0; right: 0; bottom: 0; padding: 12px 16px calc(12px + env(safe-area-inset-bottom, 0px)); background: linear-gradient(to top, var(--bg) 70%, transparent); z-index: 20; display: none; }
 .cartbar.show { display: block; }
-.cartbar button { width: 100%; max-width: 528px; margin: 0 auto; display: flex; justify-content: space-between; align-items: center; background: var(--accent); color: var(--accent-ink); border: 0; border-radius: 14px; padding: 15px 18px; font-weight: 700; font-size: 16px; }
+.cartbar button { width: 100%; max-width: 528px; margin: 0 auto; display: flex; justify-content: space-between; align-items: center; background: var(--accent); color: var(--accent-ink); border: 0; border-radius: 12px; padding: 12px 16px; font: 700 14px/1.25 var(--display); box-shadow: inset 0 -3px 0 rgba(14,42,71,.16); }
 
 /* ---------- Шторка и карточка товара ---------- */
 .scrim { position: fixed; inset: 0; background: rgba(5,15,25,.5); opacity: 0; pointer-events: none; transition: opacity .2s; z-index: 30; }
@@ -135,7 +135,8 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .left { margin: 10px 0 0; font-weight: 600; font-size: 13px; color: #C2410C; }
 .left:empty { display: none; }
 .hint { color: var(--danger); font-size: 13px; margin: 8px 0 0; min-height: 18px; }
-.primary { width: 100%; margin-top: 18px; background: var(--accent); color: var(--accent-ink); border: 0; border-radius: 14px; padding: 15px; font-weight: 700; font-size: 16px; }
+/* Кнопки в фирменном стиле Vexa: жёлтая с тёмно-синим шрифтом Unbounded, компактная высота */
+.primary { width: 100%; margin-top: 14px; background: var(--accent); color: var(--accent-ink); border: 0; border-radius: 12px; padding: 12px 16px; font: 700 14px/1.25 var(--display); letter-spacing: .01em; box-shadow: inset 0 -3px 0 rgba(14,42,71,.16); }
 .primary:disabled { opacity: .6; }
 .primary.sm { width: auto; margin-top: 0; padding: 11px 16px; font-size: 14px; flex: 1; }
 .primary.danger { background: var(--danger); color: #fff; }
@@ -144,6 +145,14 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .ghost.danger { width: 100%; border-color: var(--danger); color: var(--danger); }
 .ghost.danger[data-armed] { background: var(--danger); color: #fff; }
 .ghost.copy { width: 100%; margin-top: 10px; }
+/* Карточка товара: «В корзину» и «Купить» в один ряд */
+.buy-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.5fr); gap: 8px; margin-top: 14px; }
+.buy-row .primary { margin-top: 0; }
+.ghost.to-cart { margin-top: 0; border-color: var(--ink); color: var(--ink); border-radius: 12px; padding: 12px 10px; font: 700 13px/1.25 var(--display); }
+.ghost.to-cart:active { transform: scale(.95); }
+.p-name.sub { margin-top: 20px; }
+.buy-line { border-top: 1px solid var(--line); margin-top: 8px; }
+.buy-line .cost { font: 700 15px var(--display); }
 
 /* ---------- Корзина и оформление ---------- */
 .line { display: grid; grid-template-columns: 64px 1fr auto; gap: 12px; align-items: center; padding: 12px 0; border-bottom: 1px solid var(--line); }
@@ -255,7 +264,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .toast.show { transform: translate(-50%, 0); }
 
 /* ---------- Движение: только в ответ на действия ---------- */
-.chip, .size, .swatch, .primary, .way, .qty button, .cartbar button { transition: transform .14s var(--ease), box-shadow .2s; }
+.chip, .size, .swatch, .primary, .ghost.to-cart, .way, .qty button, .cartbar button { transition: transform .14s var(--ease), box-shadow .2s; }
 .chip:active, .size:active, .swatch:active, .primary:active, .way:active, .qty button:active, .cartbar button:active { transform: scale(.95); }
 .grid.swap .card, .page.swap { animation: cardIn .34s var(--ease) both; }
 .grid.swap .card:nth-child(2) { animation-delay: .04s; }
