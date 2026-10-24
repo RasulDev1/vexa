@@ -5,6 +5,7 @@ import { state, saveCart, findProduct } from "./state.js?v=20261001b";
 import { colorName, swatchBackground, stockLeft, isUnavailable, isSoldOut } from "./catalog.js?v=20261001b";
 import { productImage, swapImage, photoForColor } from "./photos.js?v=20261001b";
 import { sheetBody, openSheet, closeSheet, syncMainButton } from "./nav.js?v=20261001b";
+import { openCheckout } from "./cart.js?v=20261001b";
 import { sizeChartHtml, syncSizeChart } from "./size-chart.js?v=20261001b";
 import { loadRatings, ratingHtml, ratingLineHtml, showProductReviews, handleReviewTap } from "./reviews.js?v=20261001b";
 
@@ -69,7 +70,10 @@ export function openProduct(id, writeReview = false) {
     ${sizeChartHtml(p)}
     <p class="left" id="stockNote">${stockNote(p, p.colors[0], onlySize)}</p>
     <p class="hint" id="hint"></p>
-    <button class="primary browser-only" id="addToCart">Добавить в корзину · ${formatPrice(p.price)}</button>
+    <div class="buy-row">
+      <button class="ghost to-cart" id="addToCart">В корзину</button>
+      <button class="primary buy" id="buyNow">Купить · ${formatPrice(p.price)}</button>
+    </div>
     <section class="rv" id="reviews"></section>`;
 
   sheetBody.onclick = (e) => {
@@ -79,6 +83,7 @@ export function openProduct(id, writeReview = false) {
     if (color) { haptic(); selectColor(p, color); }
     if (size) { haptic(); selectSize(p, size); }
     if (e.target.id === "addToCart") addSelectedToCart();
+    if (e.target.id === "buyNow") buySelectedNow();
     if (e.target.id === "sizeChartToggle") toggleSizeChart(p);
     const row = e.target.closest("[data-chart-size]:not(.off)")?.dataset.chartSize;
     if (row && !isUnavailable(p, selected.color, row)) { haptic(); selectSize(p, row); }
@@ -86,6 +91,15 @@ export function openProduct(id, writeReview = false) {
   sheetBody.oninput = null;
   openSheet("product");
   showProductReviews(id, writeReview);
+}
+
+/** Назад из оформления «Купить»: карточка с тем же цветом и размером */
+export function reopenProduct({ id, color, size }) {
+  openProduct(id);
+  const p = findProduct(id);
+  if (!p) return;
+  if (p.colors.includes(color)) selectColor(p, color);
+  if (p.sizes.includes(size) && !isUnavailable(p, selected.color, size)) selectSize(p, size);
 }
 
 /* ---------- Таблица размеров ---------- */
@@ -122,14 +136,27 @@ function selectSize(p, size) {
   syncChart(p);
 }
 
+/** Размер не выбран — подсказываем и не пускаем дальше */
+function sizeMissing() {
+  if (selected.size) return false;
+  $("hint").textContent = "Выберите размер";
+  replayAnimation($("sizes"), "shake");
+  haptic("medium");
+  return true;
+}
+
+/** «Купить»: сразу оформление заказа только этого товара, корзина не меняется */
+export function buySelectedNow() {
+  if (sizeMissing()) return;
+  const { id, color, size } = selected;
+  haptic();
+  openCheckout({ id, color, size, qty: 1 });
+}
+
 export function addSelectedToCart() {
   const p = findProduct(selected.id);
   const { color, size } = selected;
-  if (!size) {
-    $("hint").textContent = "Выберите размер";
-    replayAnimation($("sizes"), "shake");
-    return haptic("medium");
-  }
+  if (sizeMissing()) return;
   const line = state.cart.find((l) => l.id === p.id && l.color === color && l.size === size);
   if ((line?.qty || 0) >= stockLeft(p, color, size)) {
     $("hint").textContent = `В наличии ${stockLeft(p, color, size)} шт., все уже в корзине`;

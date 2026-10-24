@@ -112,7 +112,7 @@
 .staff-mode .adm-back:hover { color: var(--ink); }
 
 /* ---------- Кнопки ---------- */
-.staff-mode .primary { border-radius: 8px; padding: 11px 16px; font-size: 14px; font-weight: 600; box-shadow: var(--shadow-xs); transition: background .15s, transform .14s var(--ease); }
+.staff-mode .primary { border-radius: 8px; padding: 11px 16px; font-family: inherit; letter-spacing: normal; font-size: 14px; font-weight: 600; box-shadow: var(--shadow-xs); transition: background .15s, transform .14s var(--ease); }
 .staff-mode .primary:hover { background: color-mix(in srgb, var(--accent) 88%, #000); }
 .staff-mode .primary.danger:hover { background: color-mix(in srgb, var(--danger) 88%, #000); }
 .staff-mode .primary.sm { padding: 9px 14px; font-size: 13.5px; }

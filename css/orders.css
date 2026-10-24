@@ -16,7 +16,7 @@
 .st-delivered .ord-st { background: color-mix(in srgb, var(--muted) 16%, transparent); color: var(--muted); }
 
 /* ---------- Режим сотрудника: вместо вкладок покупателя — кнопки сотрудника (js/main.js) ---------- */
-.staff-mode #tabs, .staff-mode #addToCart, .staff-mode .cartbar { display: none !important; }
+.staff-mode #tabs, .staff-mode #addToCart, .staff-mode .buy-row, .staff-mode .cartbar { display: none !important; }
 /* Меню сотрудника: каждая кнопка — отдельная плитка, по три в ряд (на компьютере — все в один ряд) */
 .staff-mode .admin-bar:not([hidden]) { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-top: 14px; }
 .staff-mode .admin-btn { margin: 0; border: 1.5px solid var(--line); border-radius: 12px; padding: 12px 6px; font-size: 14px; line-height: 1.2; font-weight: 700;
