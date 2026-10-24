@@ -43,8 +43,8 @@ let staffSession = null; // { name, login, role: "manager" | "admin", staff_topi
    Ключ запоминается на устройстве и уходит в заголовке X-Ig-Token — по нему база узнаёт покупателя,
    как по подписи Telegram. В Telegram по-прежнему входим подписью Telegram. */
 const IG_TOKEN_KEY = "temp_ig_token";
-const igToken = takeIgToken();
-const viaInstagram = Boolean(igToken) && !telegram?.initData;
+let igToken = takeIgToken();
+let viaInstagram = Boolean(igToken) && !telegram?.initData;
 function takeIgToken() {
   const params = new URLSearchParams(location.search);
   const fromLink = params.get("ig");
@@ -55,6 +55,36 @@ function takeIgToken() {
   history.replaceState(null, "", location.pathname + (params.size ? "?" + params : "") + location.hash);
   return fromLink;
 }
+/* Покупатель по ссылке из шапки профиля Instagram (supabase-instagram-bio.sql): ни Telegram, ни ключа из директа нет.
+   При оформлении заказа база заводит его как покупателя из Instagram и выдаёт ключ — дальше всё как по ссылке из директа. */
+async function guestLogin() {
+  const { data, error } = await db().rpc("ig_guest_login");
+  if (error || !data?.token) {
+    console.warn("Supabase ig_guest_login:", error);
+    const reason = /tg:([a-z_]+)/.exec(error?.message || "")?.[1];
+    return fail_(reason ? `tg_${reason}` : error?.code === "PGRST202" ? "no_guest" : "server");
+  }
+  igToken = data.token;
+  storage.set(IG_TOKEN_KEY, igToken);
+  viaInstagram = true;
+  client = null; // следующие запросы — уже с ключом
+  return true;
+}
+
+/** Покупатель с сайта ещё не подключил директ: { code } — код для ссылки ig.me, иначе null.
+ *  Спрашиваем базу заново: привязка происходит в директе, пока сайт открыт. */
+let linkAsked = 0;
+export async function instagramLinkCode() {
+  if (!viaInstagram || me?.linked || !(await loadLibrary())) return null;
+  if (me?.link_code && Date.now() - linkAsked < 15000) return { code: me.link_code }; // «Мои заказы» перерисовываются часто
+  linkAsked = Date.now();
+  const { data } = await db().rpc("ig_login");
+  if (data?.telegram_id) me = { ...me, ...data };
+  return data && !data.linked && data.link_code ? { code: data.link_code } : null;
+}
+/** Сообщения о заказе приходят в чат бота: Telegram или привязанный директ Instagram */
+export const supabaseInBot = () => Boolean(me) && (me.channel !== "instagram" || me.linked !== false);
+
 /** ID покупателя в базе после входа: Telegram ID, а у покупателя из Instagram — отрицательный */
 export const supabaseUserId = () => me?.telegram_id ?? null;
 
@@ -75,11 +105,13 @@ function db() {
 const fail = (error) => { throw { code: error?.code === "42501" ? "not_staff" : "server", raw: error }; };
 
 /** Вход при старте: база проверяет подпись Telegram, регистрирует пользователя и возвращает роль.
+ *  guest — оформление заказа: без Telegram и ключа из директа покупатель заводится по сайту (guestLogin).
  *  Удачный вход запоминается; неудачный — нет, следующая попытка (например, «Подтвердить заказ») войдёт заново. */
-export function supabaseLogin() {
+export function supabaseLogin(guest = false) {
   if (me) return Promise.resolve(me);
   loginPromise ||= (async () => {
     if (!(await loadLibrary())) return fail_("no_library");             // не загрузилась ни своя копия, ни CDN
+    if (guest && !telegram?.initData && !viaInstagram && !(await guestLogin())) return null;
     const { data, error, status } = await db().rpc(viaInstagram ? "ig_login" : "tg_login");
     if (!error && data?.telegram_id) { loginError = null; return (me = data); }
     console.warn("Supabase tg_login:", status, error);
@@ -94,6 +126,9 @@ export function supabaseLogin() {
   return loginPromise;
 }
 function fail_(reason) { loginError = reason; return null; }
+
+/** Вход покупателя при оформлении заказа: обычный, а не вышло без Telegram и ключа — по сайту */
+const customerLogin = async () => (await supabaseLogin()) || supabaseLogin(true);
 
 /** Вызов функции базы; ошибка — { code }: причина из базы (staff:…), no_function, network или server */
 async function rpc(name, args) {
@@ -217,7 +252,7 @@ async function setStatus(num, from, patch) {
 /** Те же действия, что у сервера (state.js), — модули заказов не замечают разницы */
 export const supabaseApi = {
   async placeOrder(order) {
-    if (!(await supabaseLogin())) throw { code: "unauthorized", reason: loginError };
+    if (!(await customerLogin())) throw { code: "unauthorized", reason: loginError };
     // user_id и статус 'new' ставит сама база, клиент их не передаёт
     const { data, error } = await db().from("orders").insert({
       items: order.items, total: order.total, customer_name: order.name, phone: order.phone,
@@ -291,7 +326,7 @@ export const supabaseApi = {
   /* ---------- Оплата в окне магазина (supabase-embedded-pay.sql): заказа нет, пока не оплачено ---------- */
   /** Резерв товара под оплату: { id, total }. Ошибки: conflict (товар закончился), no_function (в базе нет функции), server */
   async holdOrder(order) {
-    if (!(await supabaseLogin())) throw { code: "unauthorized", reason: loginError };
+    if (!(await customerLogin())) throw { code: "unauthorized", reason: loginError };
     const { data, error, status } = await db().rpc("order_hold", {
       p_items: order.items, p_total: order.total, p_name: order.name, p_phone: order.phone, p_way: order.way, p_addr: order.addr || "",
     });

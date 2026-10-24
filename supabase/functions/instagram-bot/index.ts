@@ -2,6 +2,9 @@
 // Тот же магазин, что в Telegram: покупатель получает личную ссылку на сайт, заказывает, видит «Мои заказы»
 // и переписывается с менеджером по заказу. Заказы и переписка — в той же базе и той же CRM (supabase-instagram.sql).
 // Сообщения без выбранного заказа бот не трогает: менеджер отвечает на них как обычно, в приложении Instagram.
+// Заказ по ссылке из шапки профиля (supabase-instagram-bio.sql): после заказа сайт даёт кнопку в директ с кодом
+// (ig.me/m/магазин?ref=код). Код приходит боту — он привязывает заказ к аккаунту и пишет «Заказ оформлен».
+// В Meta → Webhooks должно быть включено поле messaging_referral (вместе с messages и messaging_postbacks).
 //
 // Секреты функции (Edge Functions → Secrets):
 //   IG_APP_ID       — Instagram app ID (App Dashboard → Instagram → API setup with Instagram login)
@@ -95,7 +98,7 @@ async function connect(url: URL): Promise<Response> {
   const accessToken = long?.access_token ?? short.access_token;
   await saveToken(accessToken, long?.access_token ? long.expires_in : 3600);
   // подписываем аккаунт на сообщения: без этого Instagram не присылает боту директ (переключатель в панели Meta не нужен)
-  const sub = await fetch(`${GRAPH}/me/subscribed_apps?subscribed_fields=messages,messaging_postbacks`,
+  const sub = await fetch(`${GRAPH}/me/subscribed_apps?subscribed_fields=messages,messaging_postbacks,messaging_referral`,
     { method: "POST", headers: { Authorization: `Bearer ${accessToken}` } }).then((r) => r.json()).catch(() => null);
   if (!sub?.success) {
     console.error("Instagram subscribed_apps:", sub);
@@ -118,6 +121,22 @@ async function setMenu(accessToken: string) {
   }).then((r) => r.json()).catch(() => null);
   if (!result?.result) console.error("Instagram persistent menu:", result?.error?.message ?? result);
   else console.log("Меню Instagram (☰) установлено");
+  await setIceBreakers(accessToken);
+}
+
+/** Быстрые вопросы в пустом директе (Ice Breakers). Без них Instagram не передаёт боту код из ссылки ig.me?ref=…
+    в новом диалоге: покупатель с сайта нажимает «📦 Мои заказы» — и код приходит вместе с нажатием. */
+async function setIceBreakers(accessToken: string) {
+  const result = await fetch(`${GRAPH}/me/messenger_profile`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+    body: JSON.stringify({ platform: "instagram", ice_breakers: [{ locale: "default", call_to_actions: [
+      { question: "📦 Мои заказы", payload: "ORDERS" },
+      { question: "🛍 Каталог", payload: "SHOP" },
+    ] }] }),
+  }).then((r) => r.json()).catch(() => null);
+  if (!result?.result) console.error("Instagram ice breakers:", result?.error?.message ?? result);
+  else console.log("Быстрые вопросы Instagram установлены");
 }
 
 /** Проверка меню: читаем его у Instagram и, если его нет, ставим заново. Раз за запуск функции, пишем итог в логи */
@@ -127,10 +146,14 @@ async function checkMenu() {
   menuChecked = true;
   const accessToken = await token();
   if (!accessToken) return;
-  const result = await fetch(`${GRAPH}/me/messenger_profile?platform=instagram&fields=persistent_menu`,
+  const result = await fetch(`${GRAPH}/me/messenger_profile?platform=instagram&fields=persistent_menu,ice_breakers`,
     { headers: { Authorization: `Bearer ${accessToken}` } }).then((r) => r.json()).catch(() => null);
   const items = result?.data?.[0]?.persistent_menu?.[0]?.call_to_actions;
-  if (items?.length) { console.log(`Меню Instagram (☰) на месте: ${items.map((i: Json) => i.title).join(", ")}`); return; }
+  if (items?.length) {
+    console.log(`Меню Instagram (☰) на месте: ${items.map((i: Json) => i.title).join(", ")}`);
+    if (!result.data.some((d: Json) => d.ice_breakers?.length)) await setIceBreakers(accessToken);
+    return;
+  }
   console.error("Меню Instagram (☰) не найдено у Instagram, ставлю заново:", result?.error?.message ?? "пусто");
   await setMenu(accessToken);
 }
@@ -403,6 +426,35 @@ const ERRORS: Record<string, string> = {
 };
 const SEND_FAILED = "Не получилось отправить сообщение 😔 Попробуйте, пожалуйста, ещё раз через минуту.";
 // «/start», «старт», «начать» — как /start в Telegram: заново показывают приветствие
+/* ---------- Покупатель с сайта подключает директ ----------
+   Заказал по ссылке из шапки профиля (supabase-instagram-bio.sql) и нажал на сайте «Открыть директ VEXA»:
+   код приходит в ссылке ig.me/m/магазин?ref=код или текстом. По коду база привязывает его заказы к этому аккаунту. */
+const LINK_CODE = /\bVX[0-9A-F]{8}\b/i;
+
+async function bind(igsid: string, code: string): Promise<Json> {
+  // имя и логин — для CRM, если этого покупателя бот ещё не знает
+  const profile = known.has(igsid) ? {} : await fetch(`${GRAPH}/${igsid}?fields=name,username`,
+    { headers: { Authorization: `Bearer ${await token()}` } }).then((r) => r.json()).catch(() => ({}));
+  const { data, error } = await db.rpc("ig_bind", {
+    p_code: code, p_igsid: igsid, p_username: profile?.username ?? null, p_name: profile?.name ?? null,
+  });
+  if (error) { console.error("ig_bind", error); return null; }
+  if (data?.user_id) known.set(igsid, Number(data.user_id));
+  return data;
+}
+
+/** Директ подключён: «заказ оформлен» и сам заказ — с реквизитами, если он уже принят */
+async function linked(to: string, userId: number) {
+  const { data: o } = await db.from("orders").select("id").eq("user_id", userId).in("status", ACTIVE)
+    .order("id", { ascending: false }).limit(1).maybeSingle();
+  if (!o) {
+    return sayWithShop(to, userId, "Готово! Директ подключён: статусы ваших заказов будут приходить сюда.\n\n" +
+      "📦 «Мои заказы» — статус заказа, реквизиты для оплаты и связь с менеджером.");
+  }
+  await say(to, "✅ Заказ оформлен! Статус, реквизиты для оплаты и сообщения менеджера будут приходить сюда, в директ.");
+  return chooseOrder(to, userId, o.id);
+}
+
 const SHOP_WORDS = /^\/?(магазин|каталог|меню|старт|start|начать|главная|shop|🛍)/i;
 const ORDER_WORDS = /^(📦\s*)?мои заказы/i;
 
@@ -411,7 +463,15 @@ async function handle(igsid: string, m: Json) {
   const payload: string = m.quick_reply?.payload ?? m.payload ?? "";
   const text: string = String(m.text ?? "").trim();
   // команда боту — сразу «печатает…»; обычное сообщение может читать менеджер, там бот молчит
-  if (payload || ORDER_WORDS.test(text) || SHOP_WORDS.test(text)) { markSeen(igsid); typing(igsid); }
+  const code = LINK_CODE.exec(String(m.ref ?? ""))?.[0] ?? LINK_CODE.exec(text)?.[0];
+  if (payload || code || ORDER_WORDS.test(text) || SHOP_WORDS.test(text)) { markSeen(igsid); typing(igsid); }
+  if (code) {
+    const bound = await bind(igsid, code);
+    if (bound?.user_id) return linked(igsid, Number(bound.user_id));
+    // код набран руками и не подошёл — подскажем; неподходящий код из ссылки молча пропускаем
+    if (!m.ref && bound?.error) return say(igsid, "Этот код не подошёл 🤔 Откройте директ кнопкой «Открыть директ VEXA» на сайте после заказа или проверьте код во вкладке «Мои заказы».");
+  }
+  if (m.ref !== undefined && !text && !payload) return; // покупатель только открыл диалог по ссылке
   const tc = Date.now();
   const me = await customer(igsid);
   console.log(`  шаг: покупатель ${Date.now() - tc} мс`);
@@ -432,8 +492,7 @@ async function handle(igsid: string, m: Json) {
   // Заказ выбран (в «Мои заказы» или менеджер написал по нему) — сообщение уходит в чат заказа
   const { data: chosen } = await db.from("bot_chat_state").select("order_id").eq("telegram_id", me.id).maybeSingle();
   if (!chosen?.order_id) {
-    // Новому покупателю — приветствие со ссылкой на магазин. Остальное читает менеджер в приложении Instagram.
-    if (me.isNew) return greet(igsid, me.id);
+    // Бот включается заказом на сайте (код из кнопки) или командой. Остальное читает менеджер в приложении Instagram.
     return;
   }
   const attachment = (Array.isArray(m.attachments) ? m.attachments : [])
@@ -554,8 +613,12 @@ Deno.serve(async (request) => {
       const igsid = String(e.sender?.id ?? "");
       // своё же сообщение (эхо), прочтение, реакция — пропускаем
       if (!igsid || igsid === String(e.account) || e.message?.is_echo || e.message?.is_deleted) continue;
-      const m = e.message ?? (e.postback ? { text: e.postback.title, payload: e.postback.payload } : null);
+      // код из ссылки ig.me?ref=…: отдельным событием (диалог открыт), в нажатии быстрого вопроса или в сообщении
+      const ref = e.referral?.ref ?? e.postback?.referral?.ref ?? e.message?.referral?.ref;
+      const m = e.message ? { ...e.message } : e.postback ? { text: e.postback.title, payload: e.postback.payload }
+        : ref ? { text: "" } : null;
       if (!m) continue;
+      if (ref) m.ref = String(ref);
       // замеры: сколько Instagram доставлял сообщение до нас (по его метке времени) и сколько бот готовил ответ
       const started = Date.now();
       console.log("Сообщение от", igsid, String(m.text ?? "[файл]").slice(0, 40));

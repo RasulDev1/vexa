@@ -2,8 +2,8 @@
 import { $, telegram, telegramUser, formatPrice, orderDate, escapeHtml, haptic, toast, on, storage, replayAnimation, copyToClipboard, openLink } from "./core.js?v=20261001b";
 import { DELIVERY_METHODS } from "./data.js?v=20261001b";
 import { state, api, saveCart, findProduct, cartTotal, hasServer, useSupabase, hasOrdersBackend } from "./state.js?v=20261001b";
-import { watchOrders, supabaseUserId } from "./supabase.js?v=20261001b";
-import { MANAGER_USERNAME, ONLINE_PAY, ONLINE_PAY_TESTERS, ONLINE_PAY_TEST } from "./config.js?v=20261001b";
+import { watchOrders, supabaseUserId, instagramLinkCode, supabaseInBot } from "./supabase.js?v=20261001b";
+import { MANAGER_USERNAME, ONLINE_PAY, ONLINE_PAY_TESTERS, ONLINE_PAY_TEST, INSTAGRAM_USERNAME } from "./config.js?v=20261001b";
 import { colorName, swatchBackground, stockLeft, refreshCatalog } from "./catalog.js?v=20261001b";
 import { productImage } from "./photos.js?v=20261001b";
 import { sheetBody, openSheet, closeSheet, setTab, openCart, syncMainButton } from "./nav.js?v=20261001b";
@@ -203,7 +203,7 @@ export async function placeOrder() {
     rememberOrder({ ...order, num, date: new Date().toISOString(), status: "new" });
     clearOrderedCart();
     const payHere = useSupabase && payWayOf(order) === "online" && onlinePayOn(); // онлайн-оплата — кнопка прямо в этом окне
-    showOrderPlaced(items, useSupabase ? "Заказ принят автоматически. Реквизиты или ссылка на оплату появятся сразу здесь, во вкладке «Мои заказы», и придут в чат бота." : undefined, payHere ? num : 0, payWayOf(order) === "online");
+    showOrderPlaced(items, useSupabase ? `Заказ принят автоматически. Реквизиты или ссылка на оплату появятся сразу здесь, во вкладке «Мои заказы»${supabaseInBot() ? ", и придут в чат бота" : ""}.` : undefined, payHere ? num : 0, payWayOf(order) === "online");
     if (payHere) waitPayButton(num);
     // база принимает заказ сама, через секунду-две: догружаем статус, если событие пришло раньше записи заказа
     if (useSupabase && !payHere) setTimeout(() => renderMyOrders(true), 2500);
@@ -332,13 +332,44 @@ function showOrderPlaced(items, note = "Когда менеджер провер
     ${orderItemsHtml({ items })}
     <p class="p-desc">${note}</p>
     ${payNum ? `<button class="primary pay" id="payNow" disabled>Готовим оплату…</button>` : ""}
+    <div class="ig-offer" id="doneIgOffer" hidden></div>
     <button class="${payNum ? "ghost" : "primary"}" id="showMyOrders"${payNum ? ' style="width:100%"' : ""}>Мои заказы</button></div>`;
   sheetBody.onclick = (e) => {
     if (e.target.id === "showMyOrders") { closeSheet(); setTab("orders"); }
     if (e.target.dataset?.payOnline) payOnline(e.target);
+    igOfferClick(e);
   };
   haptic("success");
   openSheet("done");
+  showInstagramOffer($("doneIgOffer"), true);
+}
+
+/* ---------- Статус заказа в директ Instagram ----------
+   Покупатель пришёл по ссылке из шапки профиля и заказал на сайте (supabase-instagram-bio.sql). Написать ему первым
+   Instagram не разрешает, поэтому кнопка открывает директ магазина со ссылкой ig.me/m/магазин?ref=код: покупатель
+   нажимает «📦 Мои заказы» или отправляет код, бот привязывает заказы к его Instagram и сразу присылает заказ. */
+async function showInstagramOffer(box, afterOrder = false) {
+  if (!box || !useSupabase || !INSTAGRAM_USERNAME) return;
+  const link = await instagramLinkCode().catch(() => null);
+  if (!link || !box.isConnected) return;
+  const url = `https://ig.me/m/${encodeURIComponent(INSTAGRAM_USERNAME.replace(/^@/, ""))}?ref=${encodeURIComponent(link.code)}`;
+  box.innerHTML = `<p class="ig-offer-title">${afterOrder ? "Получайте статус заказа в Instagram" : "Статус заказов — в директ Instagram"}</p>
+    <p class="ig-offer-text">Нажмите кнопку и отправьте в директ код. Бот сразу пришлёт заказ, а дальше — реквизиты, оплату и доставку.</p>
+    <a class="primary ig-offer-go" href="${url}" target="_blank" rel="noopener" data-ig-offer>Открыть директ VEXA</a>
+    <button class="ghost ig-offer-code" data-ig-code="${escapeHtml(link.code)}">Код: <b>${escapeHtml(link.code)}</b> · скопировать</button>`;
+  box.hidden = false;
+}
+
+function igOfferClick(e) {
+  const code = e.target.closest("[data-ig-code]");
+  if (code) { haptic(); copyToClipboard(code.dataset.igCode, code); }
+  const go = e.target.closest("[data-ig-offer]");
+  if (go) {
+    e.preventDefault();
+    haptic();
+    navigator.clipboard?.writeText(go.closest(".ig-offer").querySelector("[data-ig-code]").dataset.igCode).catch(() => {}); // код уже в буфере — останется вставить
+    openLink(go.href);
+  }
 }
 
 /* ---------- Мои заказы ---------- */
@@ -540,8 +571,11 @@ function myOrdersHtml() {
 
 export async function renderMyOrders(reload = false) {
   const page = $("ordersPage");
-  const draw = () => (page.innerHTML = state.myOrders.length ? myOrdersHtml()
-    : emptyState("Заказов пока нет", "Здесь будут ваши заказы с фото товаров и реквизитами для оплаты.", "goShopping"));
+  const draw = () => {
+    page.innerHTML = state.myOrders.length ? `<div class="ig-offer" id="ordersIgOffer" hidden></div>${myOrdersHtml()}`
+      : emptyState("Заказов пока нет", "Здесь будут ваши заказы с фото товаров и реквизитами для оплаты.", "goShopping");
+    showInstagramOffer($("ordersIgOffer"));
+  };
   draw();
   if (!reload || !hasOrdersBackend) return;
   try {
@@ -563,6 +597,7 @@ export function initCart() {
   $("ordersPage").oninput = (e) => { if (e.target.id === "returnComment" && returnDraft) returnDraft.comment = e.target.value; };
   $("ordersPage").onclick = (e) => {
     if (e.target.id === "goShopping") setTab("shop");
+    igOfferClick(e);
     const review = e.target.closest("[data-review]");
     if (review) { haptic(); return openProduct(Number(review.dataset.review), true); }
     const group = e.target.closest("[data-orders-group]")?.dataset.ordersGroup;
