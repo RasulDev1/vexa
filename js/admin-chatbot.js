@@ -4,6 +4,8 @@
 // Правила хранятся в каталоге: igRules = [{ post: "код поста" | "", words: ["+", "хочу"], product: id, replies? }].
 // Тексты ответа — тоже в каталоге: igReplies = { greetingsNamed, greetings, about, about2, links }, в каждом список вариантов.
 // У правила могут быть свои тексты (replies, те же блоки): пустой блок правила — бот берёт общий текст.
+// greetingMode (в igReplies и в replies правила): "named" — всегда приветствие с логином, "plain" — всегда без,
+// нет — вперемешку; у правила без своего — как в общем тексте.
 import { $, escapeHtml, haptic, toast } from "./core.js?v=20261001b";
 import { state, api, errorMessage } from "./state.js?v=20261001b";
 import { refreshCatalog } from "./catalog.js?v=20261001b";
@@ -32,7 +34,17 @@ const BLOCKS = [
 ];
 const linesOf = (text) => String(text).split("\n").map((x) => x.trim()).filter(Boolean).slice(0, 30);
 const savedBlock = (id) => (Array.isArray(state.igReplies?.[id]) && state.igReplies[id].length ? state.igReplies[id] : null);
-const draftTexts = () => Object.fromEntries(BLOCKS.map(([id, , , standard]) => [id, (savedBlock(id) || standard).join("\n")]));
+const draftTexts = () => ({ ...Object.fromEntries(BLOCKS.map(([id, , , standard]) => [id, (savedBlock(id) || standard).join("\n")])),
+  greetingMode: state.igReplies?.greetingMode || "mixed" });
+const MODES = [["mixed", "Вперемешку: с логином и без"], ["named", "Всегда с логином"], ["plain", "Всегда без логина"]];
+/** Какое приветствие возьмёт бот: режим правила (own), иначе общий */
+const modeOf = (own) => own?.greetingMode || texts.greetingMode || "mixed";
+const greetingBlock = (own) => { const m = modeOf(own); return m === "named" ? "greetingsNamed" : m === "plain" ? "greetings" : Math.random() < 0.6 ? "greetingsNamed" : "greetings"; };
+function modeHtml(kind, value) {
+  const options = kind === "rule" ? [["", "Как в общем тексте"], ...MODES] : MODES;
+  return `<label class="field"><span>Приветствие <small>логин — имя человека в Instagram</small></span><select data-greet-mode="${kind}">
+    ${options.map(([v, title]) => `<option value="${v}" ${v === value ? "selected" : ""}>${title}</option>`).join("")}</select></label>`;
+}
 /** Варианты блока, которые возьмёт бот: свой текст правила (own), иначе общий, иначе стандартный */
 const effective = (id, own) => {
   const mine = linesOf(own?.[id] ?? ""), common = linesOf(texts[id]);
@@ -40,14 +52,15 @@ const effective = (id, own) => {
 };
 const combos = (own) => {
   const n = (id) => effective(id, own).length;
-  return (n("greetingsNamed") + n("greetings")) * n("about") * n("about2") * n("links");
+  const m = modeOf(own), greetings = m === "named" ? n("greetingsNamed") : m === "plain" ? n("greetings") : n("greetingsNamed") + n("greetings");
+  return greetings * n("about") * n("about2") * n("links");
 };
 const htmlLines = (text) => escapeHtml(text).replace(/\n/g, "<br>");
 
 function makeSample(own, name) {
   const pick = (id) => { const all = effective(id, own); return all[Math.floor(Math.random() * all.length)]; };
   const product = name || state.catalogProducts[0]?.name || "Товар";
-  return [pick(Math.random() < 0.6 ? "greetingsNamed" : "greetings"), pick("about"), pick("about2"), pick("links")].join("\n\n")
+  return [pick(greetingBlock(own)), pick("about"), pick("about2"), pick("links")].join("\n\n")
     .replaceAll("{name}", "dana.run").replaceAll("{product}", product).replaceAll("{url}", `${location.origin}${location.pathname.replace(/[^/]*$/, "")}?p=1`);
 }
 
@@ -58,6 +71,7 @@ function textsHtml() {
       Этот текст бот берёт для правил без своего текста и для блоков, которые в правиле оставили пустыми.
       В директ ответ приходит карточками с фото товара (по одной на цвет): приветствие — заголовок, описание — под ним,
       ссылка — кнопкой «Смотреть и заказать». Описание 2 добавляется, если вместе с описанием влезает в 80 знаков.</p>
+    ${modeHtml("common", texts.greetingMode)}
     ${BLOCKS.map(([id, title, help]) => `<label class="field"><span>${title}${help ? ` <small>${help}</small>` : ""}</span>
       <textarea data-bot-text="${id}" rows="6">${escapeHtml(texts[id])}</textarea></label>`).join("")}
     <p class="hint" id="botTextsHint"></p>
@@ -81,13 +95,15 @@ async function saveTexts(button) {
     const list = linesOf(texts[id]);
     if (list.length && list.join("\n") !== standard.join("\n")) replies[id] = list;
   }
+  if (texts.greetingMode !== "mixed") replies.greetingMode = texts.greetingMode;
   button.disabled = true;
   if (await store(() => api.setIgReplies(replies), "Тексты сохранены")) { texts = draftTexts(); render(); }
   else button.disabled = false;
 }
 
 /** Черновик своих текстов правила: { блок: "варианты построчно" }, пустая строка — общий текст */
-const ruleTexts = (replies) => Object.fromEntries(BLOCKS.map(([id]) => [id, (Array.isArray(replies?.[id]) ? replies[id] : []).join("\n")]));
+const ruleTexts = (replies) => ({ ...Object.fromEntries(BLOCKS.map(([id]) => [id, (Array.isArray(replies?.[id]) ? replies[id] : []).join("\n")])),
+  greetingMode: replies?.greetingMode || "" });
 
 /** Правила из каталога; старые привязки из карточки товара (igPosts) — как правила со словом «+» */
 function rules() {
@@ -129,6 +145,7 @@ function formHtml() {
       <summary>Свой текст ответа для этого правила</summary>
       <p class="adm-sub">Пустой блок — бот возьмёт общий текст (он ниже, под правилами). Каждый вариант с новой строки.
         Сочетаний: <b id="botRuleCombos">${combos(e.texts)}</b>.</p>
+      ${modeHtml("rule", e.texts.greetingMode)}
       ${BLOCKS.map(([id, title, help]) => `<label class="field"><span>${title}${help ? ` <small>${help}</small>` : ""}</span>
         <textarea data-rule-text="${id}" rows="4" placeholder="${escapeHtml(effective(id).slice(0, 2).join("\n"))}">${escapeHtml(e.texts[id])}</textarea></label>`).join("")}
       <p class="label">Пример ответа</p>
@@ -179,6 +196,7 @@ async function save(button) {
   if (clash) return fail(`Слово «${clash.words.find((w) => words.includes(w))}» ${post ? "под этим постом" : "под любым постом"} уже ведёт на «${productOf(clash.product)?.name ?? "другой товар"}»`);
   const rule = { post, words, product };
   const replies = Object.fromEntries(BLOCKS.map(([id]) => [id, linesOf(editing.texts[id])]).filter(([, list]) => list.length));
+  if (editing.texts.greetingMode) replies.greetingMode = editing.texts.greetingMode;
   if (Object.keys(replies).length) rule.replies = replies;
   if (editing.index == null) list.push(rule); else list[editing.index] = rule;
   button.disabled = true;
@@ -209,7 +227,7 @@ async function onClick(e) {
   if (t.id === "botSampleNext") { haptic(); sample = makeSample(); $("botSample").innerHTML = htmlLines(sample); return; }
   if (t.id === "botTextsReset") {
     if (!t.hasAttribute("data-armed")) { t.setAttribute("data-armed", ""); t.textContent = "Точно вернуть?"; return haptic("medium"); }
-    texts = Object.fromEntries(BLOCKS.map(([id, , , standard]) => [id, standard.join("\n")]));
+    texts = { ...Object.fromEntries(BLOCKS.map(([id, , , standard]) => [id, standard.join("\n")])), greetingMode: "mixed" };
     return saveTexts($("botTextsSave"));
   }
   const edit = t.closest("[data-bot-edit]");
@@ -246,6 +264,14 @@ export function openChatbot() {
   texts = draftTexts();
   sample = makeSample();
   sheetBody.onclick = onClick;
+  sheetBody.onchange = (e) => {
+    const kind = e.target.dataset.greetMode;
+    if (!kind) return;
+    if (kind === "rule" && editing) editing.texts.greetingMode = e.target.value;
+    else texts.greetingMode = e.target.value;
+    if (kind === "common") sample = makeSample();
+    render();
+  };
   sheetBody.oninput = (e) => {
     const own = e.target.dataset.ruleText;
     if (own && editing) {
