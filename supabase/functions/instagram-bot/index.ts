@@ -592,7 +592,8 @@ async function comment(account: string, v: Json) {
 
 /* Ответ собирается из четырёх блоков через пустую строку: приветствие, описание, описание 2, ссылка.
    В каждом блоке несколько вариантов, поэтому сочетаний сотни и два ответа подряд почти никогда не совпадают:
-   так Instagram не принимает бота за рассылку. {name} — логин, {product} — товар, {url} — ссылка. */
+   так Instagram не принимает бота за рассылку. {name} — логин, {product} — товар, {url} — ссылка.
+   Свои тексты сотрудники задают в CRM → «Чат-бот» (каталог, igReplies); пустой блок — варианты ниже. */
 const GREETINGS_NAMED = ["{name}, привет! 👋", "Здравствуйте, {name}!", "{name}, добрый день!", "Привет, {name} 🙌", "{name}, спасибо за интерес!"];
 const GREETINGS = ["Здравствуйте! 👋", "Привет!", "Добрый день!", "Спасибо за интерес 🙌", "Привет! Рады, что заглянули"];
 const ABOUT = [ // название товара — без склонений: «Беговая футболка Airline» в любом варианте читается правильно
@@ -612,12 +613,21 @@ const ABOUT_2 = [
 const LINKS = ["👉 {url}", "Ссылка: {url}", "Смотреть товар: {url}", "{url}"];
 const pick = <T>(list: T[]) => list[Math.floor(Math.random() * list.length)];
 
-function replyText(username: string | null, product: string, productId: number) {
+/** Блок из CRM, если там есть хоть один вариант; иначе стандартный */
+const block = (custom: Json, fallback: string[]) => {
+  const list = (Array.isArray(custom) ? custom : []).map((x: Json) => String(x).trim()).filter(Boolean);
+  return list.length ? list : fallback;
+};
+
+async function replyText(username: string | null, product: string, productId: number) {
   const url = new URL(SHOP_URL);
   url.searchParams.set("p", String(productId));
-  const greeting = username && Math.random() < 0.6 ? pick(GREETINGS_NAMED) : pick(GREETINGS);
-  return [greeting, pick(ABOUT), pick(ABOUT_2), pick(LINKS)].join("\n\n")
-    .replace("{name}", username ?? "").replace("{product}", product).replace("{url}", url.href);
+  const own = (await loadCatalog()).data.igReplies ?? {};
+  const greeting = username && Math.random() < 0.6 ? pick(block(own.greetingsNamed, GREETINGS_NAMED)) : pick(block(own.greetings, GREETINGS));
+  const parts = [greeting, pick(block(own.about, ABOUT)), pick(block(own.about2, ABOUT_2)), pick(block(own.links, LINKS))];
+  // ссылка должна быть в ответе всегда, даже если в CRM блок ссылки написали без {url}
+  if (!parts.some((p) => p.includes("{url}"))) parts.push("{url}");
+  return parts.join("\n\n").replaceAll("{name}", username ?? "").replaceAll("{product}", product).replaceAll("{url}", url.href);
 }
 
 /** Очередь ответов: раз в минуту (будильник базы) отправляем то, что пора, с паузой 8–20 с между ответами */
@@ -635,7 +645,7 @@ async function sendCommentReplies() {
         await db.from("ig_comment_replies").update({ status: "skipped", error: "товар снят с продажи" }).eq("comment_id", r.comment_id);
         continue;
       }
-      const result = await ig({ recipient: { comment_id: r.comment_id }, message: { text: replyText(r.username, product.name, product.id) } });
+      const result = await ig({ recipient: { comment_id: r.comment_id }, message: { text: await replyText(r.username, product.name, product.id) } });
       const e = result?.error;
       // временная ошибка (лимит запросов, сбой у Instagram) — повторим через 5 минут, всего до 3 попыток
       const retry = e && [1, 2, 4, 17, 32, 613].includes(Number(e.code)) && r.attempts < 3;

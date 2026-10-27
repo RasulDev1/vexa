@@ -2,6 +2,7 @@
 // Правило — пост, слова и товар: кто напишет под этим постом одно из слов, получит в директ ссылку на товар
 // (бот instagram-bot, supabase-instagram-comments.sql). Правило без поста работает под всеми остальными постами.
 // Правила хранятся в каталоге: igRules = [{ post: "код поста" | "", words: ["+", "хочу"], product: id }].
+// Тексты ответа — тоже в каталоге: igReplies = { greetingsNamed, greetings, about, about2, links }, в каждом список вариантов.
 import { $, escapeHtml, haptic, toast } from "./core.js?v=20261001b";
 import { state, api, errorMessage } from "./state.js?v=20261001b";
 import { refreshCatalog } from "./catalog.js?v=20261001b";
@@ -16,6 +17,60 @@ const STATUS = { queued: "⏳ в очереди", sending: "⏳ отправля
 let editing = null; // { index | null, post, words, product }
 let hint = "";
 let log = null, logError = "";
+let texts = null;   // черновик текстов ответа: { блок: "варианты построчно" }
+let sample = "";    // пример ответа под текстами
+
+/* ---------- Текст ответа: блоки через пустую строку, в каждом — варианты ----------
+   Те же стандартные тексты, что в боте (supabase/functions/instagram-bot/index.ts): пустой блок в CRM — бот берёт их. */
+const BLOCKS = [
+  ["greetingsNamed", "Приветствие с логином", "{name} — логин человека", ["{name}, привет! 👋", "Здравствуйте, {name}!", "{name}, добрый день!", "Привет, {name} 🙌", "{name}, спасибо за интерес!"]],
+  ["greetings", "Приветствие без логина", "если логина нет и в части ответов для разнообразия", ["Здравствуйте! 👋", "Привет!", "Добрый день!", "Спасибо за интерес 🙌", "Привет! Рады, что заглянули"]],
+  ["about", "Описание", "{product} — название товара; пишите так, чтобы его не нужно было склонять", ["Отправляем ссылку, как и обещали: {product}.", "Вот товар из поста: {product}.", "Товар, о котором вы спрашивали: {product}.", "{product} — со всеми фото и подробностями на сайте.", "Это {product}, все подробности по ссылке ниже."]],
+  ["about2", "Описание 2", "", ["В карточке есть все цвета, размеры и наличие.", "Выберите цвет и размер, заказ оформляется за минуту.", "Если сомневаетесь с размером, напишите сюда, подскажем.", "После заказа статус будет приходить сюда, в директ.", "Там же таблица размеров, чтобы не ошибиться."]],
+  ["links", "Ссылка", "{url} — ссылка на товар, она нужна в каждом варианте", ["👉 {url}", "Ссылка: {url}", "Смотреть товар: {url}", "{url}"]],
+];
+const linesOf = (text) => String(text).split("\n").map((x) => x.trim()).filter(Boolean).slice(0, 30);
+const savedBlock = (id) => (Array.isArray(state.igReplies?.[id]) && state.igReplies[id].length ? state.igReplies[id] : null);
+const draftTexts = () => Object.fromEntries(BLOCKS.map(([id, , , standard]) => [id, (savedBlock(id) || standard).join("\n")]));
+const variants = (id) => linesOf(texts[id]).length || BLOCKS.find((b) => b[0] === id)[3].length;
+const combos = () => (variants("greetingsNamed") + variants("greetings")) * variants("about") * variants("about2") * variants("links");
+
+function makeSample() {
+  const pick = (id) => { const list = linesOf(texts[id]); const all = list.length ? list : BLOCKS.find((b) => b[0] === id)[3]; return all[Math.floor(Math.random() * all.length)]; };
+  const product = state.catalogProducts[0]?.name || "Товар";
+  return [pick(Math.random() < 0.6 ? "greetingsNamed" : "greetings"), pick("about"), pick("about2"), pick("links")].join("\n\n")
+    .replaceAll("{name}", "dana.run").replaceAll("{product}", product).replaceAll("{url}", `${location.origin}${location.pathname.replace(/[^/]*$/, "")}?p=1`);
+}
+
+function textsHtml() {
+  return `<p class="label">Текст ответа</p>
+    <p class="adm-sub">Ответ собирается из четырёх блоков через пустую строку: приветствие, описание, описание 2 и ссылка.
+      В каждом блоке бот случайно берёт один вариант. Пишите каждый вариант с новой строки. Сейчас сочетаний: <b>${combos()}</b>.</p>
+    ${BLOCKS.map(([id, title, help]) => `<label class="field"><span>${title}${help ? ` <small>${help}</small>` : ""}</span>
+      <textarea data-bot-text="${id}" rows="6">${escapeHtml(texts[id])}</textarea></label>`).join("")}
+    <p class="hint" id="botTextsHint"></p>
+    <div class="ord-actions"><button class="primary sm" id="botTextsSave">Сохранить тексты</button><button class="ghost" id="botTextsReset">Вернуть стандартные</button></div>
+    <p class="label">Пример ответа</p>
+    <div class="ord adm-bot-sample" id="botSample">${escapeHtml(sample).replace(/\n/g, "<br>")}</div>
+    <button class="link" id="botSampleNext">Другой пример</button>`;
+}
+
+async function saveTexts(button) {
+  const links = linesOf(texts.links);
+  if (links.some((l) => !l.includes("{url}"))) {
+    $("botTextsHint").textContent = "В каждом варианте ссылки должно быть {url} — туда бот подставит ссылку на товар";
+    return haptic("medium");
+  }
+  // сохраняем только изменённые блоки: остальные бот берёт стандартные и они обновятся вместе с ботом
+  const replies = {};
+  for (const [id, , , standard] of BLOCKS) {
+    const list = linesOf(texts[id]);
+    if (list.length && list.join("\n") !== standard.join("\n")) replies[id] = list;
+  }
+  button.disabled = true;
+  if (await store(() => api.setIgReplies(replies), "Тексты сохранены")) { texts = draftTexts(); render(); }
+  else button.disabled = false;
+}
 
 /** Правила из каталога; старые привязки из карточки товара (igPosts) — как правила со словом «+» */
 function rules() {
@@ -74,6 +129,7 @@ function render() {
       под одним постом, через 1–2 минуты и разными текстами, чтобы Instagram не принял это за спам.</p>
     ${editing ? formHtml() : `<button class="primary" id="botAdd" style="margin-top:12px">+ Добавить правило</button>`}
     ${list.length ? list.map(ruleHtml).join("") : editing ? "" : `<p class="adm-sub" style="margin-top:12px">Правил пока нет.</p>`}
+    ${api.setIgReplies ? textsHtml() : ""}
     <p class="label">Последние ответы</p>
     ${logHtml()}`;
 }
@@ -95,13 +151,13 @@ async function save(button) {
   const rule = { post, words, product };
   if (editing.index == null) list.push(rule); else list[editing.index] = rule;
   button.disabled = true;
-  if (await store(list, "Правило сохранено")) { editing = null; hint = ""; render(); }
+  if (await store(() => api.setIgRules(list), "Правило сохранено")) { editing = null; hint = ""; render(); }
   else button.disabled = false;
 }
 
-async function store(list, done) {
+async function store(action, done) {
   try {
-    await api.setIgRules(list);
+    await action();
     await refreshCatalog();
     haptic("success");
     toast(done);
@@ -117,6 +173,13 @@ async function onClick(e) {
   if (t.id === "botAdd") { haptic(); editing = { index: null, post: "", words: "+", product: "" }; hint = ""; return render(); }
   if (t.id === "botCancel") { haptic(); editing = null; return render(); }
   if (t.id === "botSave") return save(t);
+  if (t.id === "botTextsSave") return saveTexts(t);
+  if (t.id === "botSampleNext") { haptic(); sample = makeSample(); $("botSample").innerHTML = escapeHtml(sample).replace(/\n/g, "<br>"); return; }
+  if (t.id === "botTextsReset") {
+    if (!t.hasAttribute("data-armed")) { t.setAttribute("data-armed", ""); t.textContent = "Точно вернуть?"; return haptic("medium"); }
+    texts = Object.fromEntries(BLOCKS.map(([id, , , standard]) => [id, standard.join("\n")]));
+    return saveTexts($("botTextsSave"));
+  }
   const edit = t.closest("[data-bot-edit]");
   if (edit) {
     const i = Number(edit.dataset.botEdit), r = rules()[i];
@@ -131,7 +194,7 @@ async function onClick(e) {
     if (!del.hasAttribute("data-armed")) { del.setAttribute("data-armed", ""); del.textContent = "Точно удалить?"; return haptic("medium"); }
     del.disabled = true;
     const list = rules().filter((_, i) => i !== Number(del.dataset.botDel));
-    if (await store(list, "Правило удалено")) { editing = null; render(); }
+    if (await store(() => api.setIgRules(list), "Правило удалено")) { editing = null; render(); }
   }
 }
 
@@ -148,8 +211,15 @@ async function loadLog() {
 export function openChatbot() {
   editing = null;
   hint = "";
+  texts = draftTexts();
+  sample = makeSample();
   sheetBody.onclick = onClick;
-  sheetBody.oninput = null;
+  sheetBody.oninput = (e) => {
+    const id = e.target.dataset.botText;
+    if (!id) return;
+    texts[id] = e.target.value;
+    $("botTextsHint").textContent = "";
+  };
   openSheet("chatbot");
   render();
   loadLog();
