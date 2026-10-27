@@ -392,6 +392,7 @@
 .adm-bot-rule .adm-sub { margin: 4px 0 0; }
 .adm-bot-rule a { color: inherit; font-weight: 600; }
 .adm-bot-log { margin: 6px 0 0; line-height: 1.4; }
+.adm-bot-sample { padding: 14px 16px; line-height: 1.45; white-space: normal; }
 .staff-mode .adm-rv-prod { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; font-size: 14px; }
 .staff-mode .adm-rv-prod .thumb { flex: none; width: 40px; height: 40px; border-radius: 8px; }
 .staff-mode .adm-rv.rv-hidden { opacity: .6; }

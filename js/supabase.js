@@ -572,6 +572,10 @@ export const supabaseCatalogApi = {
     c.igRules = rules;
     delete c.igPosts;
   }),
+  /** Тексты ответа чат-бота по блокам; пустой объект — стандартные тексты бота */
+  setIgReplies: (replies) => updateCatalog((c) => {
+    if (Object.keys(replies).length) c.igReplies = replies; else delete c.igReplies;
+  }),
   setStock: (id, qty) => updateCatalog((c) => { if (qty) c.stock[id] = { qty }; else delete c.stock[id]; }),
   /** Порядок карточек в каталоге: список id товаров */
   setOrder: (order) => updateCatalog((c) => { c.order = order; }),

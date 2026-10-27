@@ -98,6 +98,7 @@ export function applyCatalog(data) {
   state.sizeCharts = data.sizeCharts && typeof data.sizeCharts === "object" ? data.sizeCharts : {};
   state.igPosts = data.igPosts && typeof data.igPosts === "object" ? data.igPosts : {};
   state.igRules = Array.isArray(data.igRules) ? data.igRules : [];
+  state.igReplies = data.igReplies && typeof data.igReplies === "object" ? data.igReplies : {};
   state.receipts = Array.isArray(data.receipts) ? data.receipts : [];
   state.staff = Array.isArray(data.staff) ? data.staff : [];
   priceOverrides = data.prices && typeof data.prices === "object" ? data.prices : {};
