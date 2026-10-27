@@ -571,11 +571,12 @@ async function productOnSale(id: number): Promise<{ id: number; name: string } |
   return { id, name: names.get(String(id))! };
 }
 
-/** Комментарий под постом: слово из правила → ответ в очередь */
-async function comment(account: string, v: Json) {
+/** Комментарий под постом: слово из правила → ответ в очередь. polled — бот сам нашёл его в pollComments():
+    такие комментарии попадаются каждую минуту, поэтому в логи пишем только новое */
+async function comment(account: string, v: Json, polled = false) {
   const from = String(v.from?.id ?? ""), mediaId = String(v.media?.id ?? ""), text = String(v.text ?? "");
-  // каждый комментарий — в логи: видно, что Instagram их присылает, даже если слово не подошло
-  console.log(`Комментарий от @${v.from?.username ?? (from || "?")} под постом ${mediaId || "?"}: «${text.slice(0, 40)}»`);
+  // каждый комментарий из Webhooks — в логи: видно, что Instagram их присылает, даже если слово не подошло
+  if (!polled) console.log(`Комментарий от @${v.from?.username ?? (from || "?")} под постом ${mediaId || "?"}: «${text.slice(0, 40)}»`);
   if (from === account) return console.log("Это комментарий самого магазина — на свои комментарии бот не отвечает");
   if (!v.id || !from || !mediaId || !text.trim()) return;
   const rules = rulesOf((await loadCatalog()).data);
@@ -584,14 +585,55 @@ async function comment(account: string, v: Json) {
   const code = await postCode(mediaId);
   const rule = ruleFor(rules, code, text);
   const product = rule ? await productOnSale(rule.product) : null;
-  if (!product) return console.log(`Комментарий «${text.slice(0, 40)}» под постом ${code || mediaId}: нет правила или товар снят с продажи — не отвечаем`);
+  if (!product) return polled ? undefined : console.log(`Комментарий «${text.slice(0, 40)}» под постом ${code || mediaId}: нет правила или товар снят с продажи — не отвечаем`);
   const { data, error } = await db.rpc("ig_comment_enqueue", {
     p_comment_id: String(v.id), p_media_id: mediaId, p_post_code: code || null, p_product_id: product.id,
     p_from_id: from, p_username: v.from?.username ?? null, p_text: text,
   });
   if (error) return console.error("ig_comment_enqueue (запустите supabase-instagram-comments.sql):", error.message);
+  if (polled && data?.reason === "duplicate") return; // уже в очереди или уже ответили
   console.log(`«${text.slice(0, 40)}» от @${v.from?.username ?? from} под постом ${code} (${product.name}):`,
     data?.queued ? `ответ в очереди на ${data.send_after}` : `не отвечаем — ${data?.reason}`);
+}
+
+/* Запасной путь: раз в минуту («будильник» базы) бот сам читает свежие комментарии под последними постами.
+   Instagram присылает комментарии в Webhooks не всегда (стандартный доступ к instagram_business_manage_comments,
+   сбои доставки), а читать комментарии под своими постами можно и так. Повторов нет: очередь не принимает
+   один комментарий дважды. Один запрос к Instagram: 25 последних постов вместе с их комментариями. */
+const POLL_HOURS = 24; // отвечаем на комментарии не старше суток
+let lastPoll = 0;
+async function pollComments() {
+  if (Date.now() - lastPoll < 50_000) return;
+  lastPoll = Date.now();
+  const rules = rulesOf((await loadCatalog()).data);
+  if (!rules.length) return;
+  const accessToken = await token();
+  if (!accessToken) return;
+  const fields = "id,shortcode,permalink,username,comments.limit(50){id,text,timestamp,username,from}";
+  const res = await fetch(`${GRAPH}/me/media?fields=${encodeURIComponent(fields)}&limit=25`, { headers: { Authorization: `Bearer ${accessToken}` } })
+    .then((r) => r.json()).catch(() => null);
+  if (!Array.isArray(res?.data)) {
+    return console.error("Не удалось прочитать комментарии под постами (нужно разрешение instagram_business_manage_comments в ссылке подключения):", res?.error?.message ?? res);
+  }
+  const since = Date.now() - POLL_HOURS * 3600_000;
+  let fresh = 0, fit = 0;
+  for (const m of res.data as Json[]) {
+    const code = String(m.shortcode ?? POST_CODE.exec(String(m.permalink ?? ""))?.[1] ?? "");
+    if (code) postCodes.set(String(m.id), code);
+    for (const c of (m.comments?.data ?? []) as Json[]) {
+      if (!(Date.parse(c.timestamp) >= since)) continue;
+      fresh++;
+      const name = c.from?.username ?? c.username, text = String(c.text ?? "");
+      if (name && name === m.username) continue; // комментарий самого магазина
+      if (!rules.some((r) => r.words.some((w) => matches(text, w)))) continue;
+      fit++;
+      // ID автора нужен только чтобы не отвечать человеку дважды под одним постом; ответ уходит по ID комментария
+      const from = String(c.from?.id ?? (name ? `@${name}` : c.id));
+      await comment("", { id: c.id, text, from: { id: from, username: name }, media: { id: m.id } }, true)
+        .catch((e) => console.error("Комментарий:", e));
+    }
+  }
+  console.log(`Комментарии под ${res.data.length} последними постами: за сутки ${fresh}, со словами из правил ${fit}`);
 }
 
 /* Ответ собирается из четырёх блоков через пустую строку: приветствие, описание, описание 2, ссылка.
@@ -719,6 +761,7 @@ async function fromDatabase(request: Request, secret: string) {
     (body?.message ? managerMessage(Number(body.message))
       : body?.order ? orderStatus(Number(body.order), String(body.from ?? "")) : Promise.resolve()),
     sendCommentReplies(), // ответы на «+» в комментариях, которым пора уйти
+    body?.message || body?.order ? Promise.resolve() : pollComments(), // «будильник»: свежие комментарии под постами
   ]).catch((e) => console.error(e));
   await later(work);
   return new Response("ok");
