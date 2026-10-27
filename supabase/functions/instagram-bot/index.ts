@@ -686,7 +686,8 @@ const block = (custom: Json, fallback: string[]) => {
   return list.length ? list : fallback;
 };
 
-async function replyText(username: string | null, product: string, productId: number, postCode: string | null, comment: string) {
+type Reply = { greeting: string; about: string; about2: string; link: string; url: string };
+async function replyParts(username: string | null, product: string, productId: number, postCode: string | null, comment: string): Promise<Reply> {
   const url = new URL(SHOP_URL);
   url.searchParams.set("p", String(productId));
   const { data } = await loadCatalog();
@@ -696,10 +697,46 @@ async function replyText(username: string | null, product: string, productId: nu
   const own = Object.fromEntries(["greetingsNamed", "greetings", "about", "about2", "links"]
     .map((id) => [id, Array.isArray(mine[id]) && mine[id].length ? mine[id] : common[id]]));
   const greeting = username && Math.random() < 0.6 ? pick(block(own.greetingsNamed, GREETINGS_NAMED)) : pick(block(own.greetings, GREETINGS));
-  const parts = [greeting, pick(block(own.about, ABOUT)), pick(block(own.about2, ABOUT_2)), pick(block(own.links, LINKS))];
+  const fill = (t: string) => t.replaceAll("{name}", username ?? "").replaceAll("{product}", product).replaceAll("{url}", url.href);
+  let link = pick(block(own.links, LINKS));
   // ссылка должна быть в ответе всегда, даже если в CRM блок ссылки написали без {url}
-  if (!parts.some((p) => p.includes("{url}"))) parts.push("{url}");
-  return parts.join("\n\n").replaceAll("{name}", username ?? "").replaceAll("{product}", product).replaceAll("{url}", url.href);
+  if (!link.includes("{url}")) link += "\n{url}";
+  return { greeting: fill(greeting), about: fill(pick(block(own.about, ABOUT))), about2: fill(pick(block(own.about2, ABOUT_2))),
+    link: fill(link), url: url.href };
+}
+
+/** Фото товара для карточек: по одному на цвет (если у цветов свои фото), иначе главное; не больше 10 */
+async function productPhotos(id: number) {
+  const map = await loadCatalogPhotos();
+  const byColor = [...map.entries()].filter(([k]) => k.startsWith(`${id}|`)).map(([, url]) => url);
+  const urls = byColor.length ? byColor : [map.get(String(id)) ?? ""];
+  return [...new Set(urls.filter((u) => u.startsWith("https://")).map(lightPhoto))].slice(0, 10);
+}
+
+const cut = (t: string, n: number) => (t.length > n ? t.slice(0, n - 1).trimEnd() + "…" : t);
+const BUTTON = "Смотреть и заказать";
+
+/** Ответ на комментарий в директ. Instagram разрешает на комментарий только одно сообщение, поэтому всё — в нём:
+    1) карточки с фото (по одной на цвет, листаются) — приветствие, описание и кнопка со ссылкой;
+    2) не вышло — текст с кнопкой: ссылка в кнопке, поэтому внизу нет превью ссылки;
+    3) не вышло и это — обычный текст со ссылкой. Временная ошибка (лимит, сбой) — сразу наружу, повторим позже. */
+async function sendReply(commentId: string, r: Reply, photos: string[]): Promise<{ result: Json; form: string }> {
+  const temporary = (res: Json) => [1, 2, 4, 17, 32, 613].includes(Number(res?.error?.code));
+  const to = { comment_id: commentId };
+  if (photos.length) {
+    const subtitle = r.about.length + r.about2.length + 1 <= 80 ? `${r.about}\n${r.about2}` : r.about;
+    const elements = photos.map((image_url) => ({ title: cut(r.greeting, 80), subtitle: cut(subtitle, 80), image_url,
+      default_action: { type: "web_url", url: r.url }, buttons: [{ type: "web_url", url: r.url, title: BUTTON }] }));
+    const result = await ig({ recipient: to, message: { attachment: { type: "template", payload: { template_type: "generic", elements } } } });
+    if (sent(result) || temporary(result)) return { result, form: `карточки с фото (${photos.length})` };
+    console.error("Карточки с фото в ответ на комментарий не прошли:", result?.error?.message ?? result);
+  }
+  const text = cut([r.greeting, r.about, r.about2].join("\n\n"), 640);
+  const result = await ig({ recipient: to, message: { attachment: { type: "template", payload: { template_type: "button", text,
+    buttons: [{ type: "web_url", url: r.url, title: BUTTON }] } } } });
+  if (sent(result) || temporary(result)) return { result, form: "текст с кнопкой" };
+  console.error("Текст с кнопкой в ответ на комментарий не прошёл:", result?.error?.message ?? result);
+  return { result: await ig({ recipient: to, message: { text: [r.greeting, r.about, r.about2, r.link].join("\n\n") } }), form: "текст" };
 }
 
 /** Очередь ответов: раз в минуту (будильник базы) отправляем то, что пора, с паузой 8–20 с между ответами */
@@ -717,7 +754,8 @@ async function sendCommentReplies() {
         await db.from("ig_comment_replies").update({ status: "skipped", error: "товар снят с продажи" }).eq("comment_id", r.comment_id);
         continue;
       }
-      const result = await ig({ recipient: { comment_id: r.comment_id }, message: { text: await replyText(r.username, product.name, product.id, r.post_code, r.text ?? "") } });
+      const parts = await replyParts(r.username, product.name, product.id, r.post_code, r.text ?? "");
+      const { result, form } = await sendReply(String(r.comment_id), parts, await productPhotos(product.id));
       const e = result?.error;
       // временная ошибка (лимит запросов, сбой у Instagram) — повторим через 5 минут, всего до 3 попыток
       const retry = e && [1, 2, 4, 17, 32, 613].includes(Number(e.code)) && r.attempts < 3;
@@ -726,7 +764,7 @@ async function sendCommentReplies() {
         : retry ? { status: "queued", send_after: new Date(Date.now() + 300_000).toISOString(), error: e.message }
         : { status: "failed", error: `${e?.code ?? ""} ${e?.message ?? "Instagram не ответил"}`.trim() })
         .eq("comment_id", r.comment_id);
-      console.log(`Ответ на «+» @${r.username ?? r.from_id}:`, sent(result) ? "отправлен" : retry ? "повторим через 5 минут" : "не отправлен");
+      console.log(`Ответ на «+» @${r.username ?? r.from_id}:`, sent(result) ? `отправлен (${form})` : retry ? "повторим через 5 минут" : "не отправлен");
     }
   } finally {
     sendingReplies = false;
