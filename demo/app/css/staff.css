@@ -416,3 +416,13 @@
 .staff-mode .wh-log small { color: var(--muted); font-size: 12px; }
 .staff-mode .vcell.wh-cell { font-variant-numeric: tabular-nums; }
 .staff-mode .vcell.wh-cell.empty:not(.off) { color: var(--danger); }
+
+/* «Чат-бот» (admin-chatbot.js) */
+#adminChatbotButton { --icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z'/%3E%3Cpath d='M8 9h8M8 13h5'/%3E%3C/svg%3E"); }
+.staff-mode .adm-bot-rule { padding: 14px 16px; }
+.adm-bot-rule .adm-sub { margin: 4px 0 0; }
+.adm-bot-rule a { color: inherit; font-weight: 600; }
+.adm-bot-log { margin: 6px 0 0; line-height: 1.4; }
+.adm-bot-sample { padding: 14px 16px; line-height: 1.45; white-space: normal; }
+.adm-bot-own { margin: 10px 0; }
+.adm-bot-own summary { cursor: pointer; font-weight: 600; padding: 6px 0; }
