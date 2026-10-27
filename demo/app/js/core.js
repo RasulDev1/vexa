@@ -77,7 +77,10 @@ export function setupTelegram() {
   try {
     telegram.ready();
     telegram.expand();
-    const applyTheme = () => (document.documentElement.dataset.theme = telegram.colorScheme);
+    // Если сотрудник сам выбрал тему кнопкой (js/theme-toggle.js), тему Telegram не применяем
+    const applyTheme = () => {
+      if (!document.documentElement.dataset.themeLocked) document.documentElement.dataset.theme = telegram.colorScheme;
+    };
     applyTheme();
     telegram.onEvent("themeChanged", applyTheme);
     telegram.setHeaderColor?.("bg_color");
