@@ -686,7 +686,7 @@ const block = (custom: Json, fallback: string[]) => {
   return list.length ? list : fallback;
 };
 
-type Reply = { greeting: string; about: string; about2: string; link: string; url: string };
+type Reply = { greeting: string; about: string; about2: string; link: string; button: string; url: string };
 async function replyParts(username: string | null, product: string, productId: number, postCode: string | null, comment: string): Promise<Reply> {
   const url = new URL(SHOP_URL);
   url.searchParams.set("p", String(productId));
@@ -694,7 +694,7 @@ async function replyParts(username: string | null, product: string, productId: n
   // свой текст правила, по которому ответили (CRM → «Чат-бот» → правило); пустой блок правила — общий текст
   const rule = ruleFor(rulesOf(data), postCode ?? "", comment);
   const common = data.igReplies ?? {}, mine = rule?.product === productId ? rule.replies ?? {} : {};
-  const own = Object.fromEntries(["greetingsNamed", "greetings", "about", "about2", "links"]
+  const own = Object.fromEntries(["greetingsNamed", "greetings", "about", "about2", "links", "buttons"]
     .map((id) => [id, Array.isArray(mine[id]) && mine[id].length ? mine[id] : common[id]]));
   // приветствие с логином, без или вперемешку — как выбрали в CRM (у правила своё или общее)
   const mode = String(mine.greetingMode || common.greetingMode || "mixed");
@@ -705,7 +705,7 @@ async function replyParts(username: string | null, product: string, productId: n
   // ссылка должна быть в ответе всегда, даже если в CRM блок ссылки написали без {url}
   if (!link.includes("{url}")) link += "\n{url}";
   return { greeting: fill(greeting), about: fill(pick(block(own.about, ABOUT))), about2: fill(pick(block(own.about2, ABOUT_2))),
-    link: fill(link), url: url.href };
+    link: fill(link), button: cut(fill(pick(block(own.buttons, [BUTTON]))), 20), url: url.href };
 }
 
 /** Фото товара для карточек: по одному на цвет (если у цветов свои фото), иначе главное; не больше 10 */
@@ -729,14 +729,14 @@ async function sendReply(commentId: string, r: Reply, photos: string[]): Promise
   if (photos.length) {
     const subtitle = r.about.length + r.about2.length + 1 <= 80 ? `${r.about}\n${r.about2}` : r.about;
     const elements = photos.map((image_url) => ({ title: cut(r.greeting, 80), subtitle: cut(subtitle, 80), image_url,
-      default_action: { type: "web_url", url: r.url }, buttons: [{ type: "web_url", url: r.url, title: BUTTON }] }));
+      default_action: { type: "web_url", url: r.url }, buttons: [{ type: "web_url", url: r.url, title: r.button }] }));
     const result = await ig({ recipient: to, message: { attachment: { type: "template", payload: { template_type: "generic", elements } } } });
     if (sent(result) || temporary(result)) return { result, form: `карточки с фото (${photos.length})` };
     console.error("Карточки с фото в ответ на комментарий не прошли:", result?.error?.message ?? result);
   }
   const text = cut([r.greeting, r.about, r.about2].join("\n\n"), 640);
   const result = await ig({ recipient: to, message: { attachment: { type: "template", payload: { template_type: "button", text,
-    buttons: [{ type: "web_url", url: r.url, title: BUTTON }] } } } });
+    buttons: [{ type: "web_url", url: r.url, title: r.button }] } } } });
   if (sent(result) || temporary(result)) return { result, form: "текст с кнопкой" };
   console.error("Текст с кнопкой в ответ на комментарий не прошёл:", result?.error?.message ?? result);
   return { result: await ig({ recipient: to, message: { text: [r.greeting, r.about, r.about2, r.link].join("\n\n") } }), form: "текст" };
