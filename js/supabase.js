@@ -465,7 +465,7 @@ export const supabaseApi = {
 
 /* ---------- Каталог в базе (supabase-catalog.sql): без ключей GitHub, изменения видны сразу ---------- */
 const PHOTO_BUCKET = "products";
-const EMPTY_CATALOG = { products: [], hidden: [], variants: {}, stock: {}, staff: [], prices: {}, order: [], sizeCharts: {} };
+const EMPTY_CATALOG = { products: [], hidden: [], variants: {}, stock: {}, staff: [], prices: {}, order: [], sizeCharts: {}, igPosts: {} };
 let catalogInDb = false; // каталог уже хранится в базе (иначе — первая загрузка из catalog/catalog.json)
 
 /** Опубликованный в репозитории каталог — им база заполняется при первом сохранении */
@@ -565,6 +565,16 @@ export const supabaseCatalogApi = {
     c.sizeCharts ||= {};
     if (chart) c.sizeCharts[id] = chart; else delete c.sizeCharts[id];
   }),
+  /** Посты Instagram товара: коды постов (instagram.com/p/КОД). На «+» под ними бот пришлёт в директ ссылку на товар */
+  setIgPosts: (id, codes) => updateCatalog((c) => {
+    c.igPosts ||= {};
+    // один пост — один товар: убираем этот пост у других товаров
+    for (const [other, list] of Object.entries(c.igPosts)) {
+      c.igPosts[other] = list.filter((code) => !codes.includes(code));
+      if (!c.igPosts[other].length) delete c.igPosts[other];
+    }
+    if (codes.length) c.igPosts[id] = codes;
+  }),
   setStock: (id, qty) => updateCatalog((c) => { if (qty) c.stock[id] = { qty }; else delete c.stock[id]; }),
   /** Порядок карточек в каталоге: список id товаров */
   setOrder: (order) => updateCatalog((c) => { c.order = order; }),
@@ -619,6 +629,7 @@ export const supabaseCatalogApi = {
       delete c.stock[id];
       if (c.prices) delete c.prices[id];
       if (c.sizeCharts) delete c.sizeCharts[id];
+      if (c.igPosts) delete c.igPosts[id];
       if (c.order) c.order = c.order.filter((x) => x !== id);
     });
     for (const color of removed?.colors || []) {

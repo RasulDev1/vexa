@@ -5,6 +5,9 @@
 // Заказ по ссылке из шапки профиля (supabase-instagram-bio.sql): после заказа сайт даёт кнопку в директ с кодом
 // (ig.me/m/магазин?ref=код). Код приходит боту — он привязывает заказ к аккаунту и пишет «Заказ оформлен».
 // В Meta → Webhooks должно быть включено поле messaging_referral (вместе с messages и messaging_postbacks).
+// «Пишите + в комментариях» (supabase-instagram-comments.sql): на «+» под постом, к которому в CRM привязан товар,
+// бот один раз отвечает автору в директ ссылкой на этот товар. Нужны поле comments в Webhooks и разрешение
+// instagram_business_manage_comments; ответы уходят из очереди с паузами, текст — один из нескольких вариантов.
 //
 // Секреты функции (Edge Functions → Secrets):
 //   IG_APP_ID       — Instagram app ID (App Dashboard → Instagram → API setup with Instagram login)
@@ -96,14 +99,25 @@ async function connect(url: URL): Promise<Response> {
   const accessToken = long?.access_token ?? short.access_token;
   await saveToken(accessToken, long?.access_token ? long.expires_in : 3600);
   // подписываем аккаунт на сообщения: без этого Instagram не присылает боту директ (переключатель в панели Meta не нужен)
-  const sub = await fetch(`${GRAPH}/me/subscribed_apps?subscribed_fields=messages,messaging_postbacks,messaging_referral`,
-    { method: "POST", headers: { Authorization: `Bearer ${accessToken}` } }).then((r) => r.json()).catch(() => null);
+  const sub = await subscribe(accessToken);
   if (!sub?.success) {
     console.error("Instagram subscribed_apps:", sub);
     return page(`Аккаунт подключён, но Instagram не подписал его на сообщения: ${sub?.error?.message ?? "нет ответа"}. Настройте веб-хуки в приложении Meta и откройте ссылку подключения ещё раз.`, 502);
   }
   await setMenu(accessToken);
   return page("✅ Готово: аккаунт Instagram подключён к магазину и получает сообщения. Это окно можно закрыть.");
+}
+
+/** Подписка аккаунта на события: директ и комментарии («+» под постом).
+    Без разрешения instagram_business_manage_comments Instagram откажет во всей подписке — тогда подписываемся без комментариев. */
+const MESSAGE_FIELDS = "messages,messaging_postbacks,messaging_referral";
+async function subscribe(accessToken: string): Promise<Json> {
+  const post = (fields: string) => fetch(`${GRAPH}/me/subscribed_apps?subscribed_fields=${fields}`,
+    { method: "POST", headers: { Authorization: `Bearer ${accessToken}` } }).then((r) => r.json()).catch(() => null);
+  const all = await post(`${MESSAGE_FIELDS},comments`);
+  if (all?.success) return all;
+  console.error("Подписка на комментарии не прошла (нужно разрешение instagram_business_manage_comments):", all?.error?.message ?? all);
+  return post(MESSAGE_FIELDS);
 }
 
 /** Постоянное меню директа (кнопка ☰ у поля ввода) — «🛍 Магазин» и «📦 Мои заказы», как в Telegram.
@@ -144,9 +158,8 @@ async function checkMenu() {
   menuChecked = true;
   const accessToken = await token();
   if (!accessToken) return;
-  // подписка аккаунта на события: аккаунты, подключённые раньше, не получали messaging_referral (код из ссылки ig.me)
-  const sub = await fetch(`${GRAPH}/me/subscribed_apps?subscribed_fields=messages,messaging_postbacks,messaging_referral`,
-    { method: "POST", headers: { Authorization: `Bearer ${accessToken}` } }).then((r) => r.json()).catch(() => null);
+  // подписка аккаунта на события: аккаунты, подключённые раньше, не получали messaging_referral (код из ссылки ig.me) и комментарии
+  const sub = await subscribe(accessToken);
   if (!sub?.success) console.error("Instagram subscribed_apps:", sub?.error?.message ?? sub);
   const result = await fetch(`${GRAPH}/me/messenger_profile?platform=instagram&fields=persistent_menu,ice_breakers`,
     { headers: { Authorization: `Bearer ${accessToken}` } }).then((r) => r.json()).catch(() => null);
@@ -488,6 +501,118 @@ async function handle(igsid: string, m: Json) {
   if (me.isNew) return greet(igsid, me.id);
 }
 
+/* ---------- «Пишите + в комментариях» (supabase-instagram-comments.sql) ----------
+   К посту товар привязывают в CRM (карточка товара → «Instagram: «+» в комментариях»): в каталоге это
+   igPosts { id товара: ["код поста", …] }. Instagram присылает ID поста, а не код — код берём из его ссылки (permalink). */
+const PLUS = /^\s*(?:[+＋]+|плюс)[\s!.)❤️🔥👍🙏]*$/iu;
+const POST_CODE = /instagram\.com\/(?:[\w.]+\/)?(?:p|reel|reels|tv)\/([\w-]+)/i;
+const postCodes = new Map<string, string>(); // ID поста → код, пока функция «тёплая»
+
+async function postCode(mediaId: string): Promise<string> {
+  if (postCodes.has(mediaId)) return postCodes.get(mediaId)!;
+  const media = await fetch(`${GRAPH}/${mediaId}?fields=permalink,shortcode`, { headers: { Authorization: `Bearer ${await token()}` } })
+    .then((r) => r.json()).catch(() => null);
+  const code = String(media?.shortcode ?? POST_CODE.exec(String(media?.permalink ?? ""))?.[1] ?? "");
+  if (!code) console.error("Не узнал код поста", mediaId, media?.error?.message ?? media);
+  else postCodes.set(mediaId, code);
+  return code;
+}
+
+let catalogCache: { at: number; data: Json; names: Map<string, string> } | null = null;
+/** Каталог (catalog_state) и названия встроенных товаров из js/data.js. Кэш на минуту: привязку в CRM видно почти сразу. */
+async function loadCatalog() {
+  if (catalogCache && Date.now() - catalogCache.at < 60_000) return catalogCache;
+  const names = catalogCache?.names ?? new Map<string, string>();
+  if (!names.size) {
+    try {
+      const source = await (await fetch(absolute("js/data.js"))).text();
+      for (const m of source.matchAll(/\{\s*id:\s*(\d+),[^{}]*?\bname:\s*"([^"]+)"/g)) names.set(m[1], m[2]);
+    } catch (e) { console.error("Названия встроенных товаров (js/data.js):", e); }
+  }
+  const { data } = await db.from("catalog_state").select("data").eq("id", 1).maybeSingle();
+  catalogCache = { at: Date.now(), data: data?.data ?? {}, names };
+  return catalogCache;
+}
+
+/** Товар поста: id и название; null — пост ни к чему не привязан или товар снят с продажи */
+async function productOfPost(code: string): Promise<{ id: number; name: string } | null> {
+  const { data: c, names } = await loadCatalog();
+  const entry = Object.entries((c.igPosts ?? {}) as Record<string, string[]>).find(([, list]) => list?.includes(code));
+  if (!entry) return null;
+  const id = Number(entry[0]);
+  const custom = (c.products ?? []).find((p: Json) => Number(p.num) === id);
+  if (custom) return custom.listed === false ? null : { id, name: String(custom.name) };
+  if ((c.hidden ?? []).map(Number).includes(id) || !names.has(String(id))) return null;
+  return { id, name: names.get(String(id))! };
+}
+
+/** Комментарий под постом: «+» → ответ в очередь */
+async function comment(account: string, v: Json) {
+  const from = String(v.from?.id ?? ""), mediaId = String(v.media?.id ?? "");
+  if (!v.id || !from || !mediaId || from === account || !PLUS.test(String(v.text ?? ""))) return;
+  const code = await postCode(mediaId);
+  const product = code ? await productOfPost(code) : null;
+  if (!product) return console.log(`«+» под постом ${code || mediaId}: к посту не привязан товар — не отвечаем`);
+  const { data, error } = await db.rpc("ig_comment_enqueue", {
+    p_comment_id: String(v.id), p_media_id: mediaId, p_post_code: code, p_product_id: product.id,
+    p_from_id: from, p_username: v.from?.username ?? null, p_text: String(v.text ?? ""),
+  });
+  if (error) return console.error("ig_comment_enqueue (запустите supabase-instagram-comments.sql):", error.message);
+  console.log(`«+» от @${v.from?.username ?? from} под постом ${code} (${product.name}):`,
+    data?.queued ? `ответ в очереди на ${data.send_after}` : `не отвечаем — ${data?.reason}`);
+}
+
+/** Варианты ответа: разный текст — меньше похоже на рассылку. {name} — логин, {product} — товар, {url} — ссылка */
+const REPLIES_NAMED = [
+  "{name}, привет! 👋 Вот ссылка на {product}:\n{url}\n\nВыберите цвет и размер, заказ оформляется прямо на сайте.",
+  "{name}, спасибо за интерес 🙌 {product} — все цвета, размеры и наличие по ссылке:\n{url}",
+  "{name}, держите ссылку 👉 {url}\n\nЭто {product}. Если сомневаетесь с размером, напишите сюда, подскажем.",
+];
+const REPLIES = [
+  "Здравствуйте! Ссылка на {product}:\n{url}\n\nЕсли будут вопросы по размеру, пишите сюда, ответим.",
+  "Добрый день! 👋 {product} здесь:\n{url}\n\nЗаказ оформляется за минуту, статус придёт сюда, в директ.",
+  "Привет! Как и обещали, ссылка на {product} 👇\n{url}",
+];
+const pick = <T>(list: T[]) => list[Math.floor(Math.random() * list.length)];
+
+function replyText(username: string | null, product: string, productId: number) {
+  const url = new URL(SHOP_URL);
+  url.searchParams.set("p", String(productId));
+  const template = username && Math.random() < 0.6 ? pick(REPLIES_NAMED) : pick(REPLIES);
+  return template.replace("{name}", username ?? "").replace("{product}", product).replace("{url}", url.href);
+}
+
+/** Очередь ответов: раз в минуту (будильник базы) отправляем то, что пора, с паузой 8–20 с между ответами */
+let sendingReplies = false;
+async function sendCommentReplies() {
+  if (sendingReplies) return;
+  sendingReplies = true;
+  try {
+    const { data: due, error } = await db.rpc("ig_comment_claim", { p_limit: 3 });
+    if (error) { if (!/ig_comment_claim/.test(error.message)) console.error("ig_comment_claim:", error.message); return; }
+    for (const [i, r] of ((due ?? []) as Json[]).entries()) {
+      if (i) await new Promise((ok) => setTimeout(ok, 8_000 + Math.random() * 12_000));
+      const product = r.post_code ? await productOfPost(r.post_code) : null;
+      if (!product) {
+        await db.from("ig_comment_replies").update({ status: "skipped", error: "товар отвязан от поста или снят с продажи" }).eq("comment_id", r.comment_id);
+        continue;
+      }
+      const result = await ig({ recipient: { comment_id: r.comment_id }, message: { text: replyText(r.username, product.name, product.id) } });
+      const e = result?.error;
+      // временная ошибка (лимит запросов, сбой у Instagram) — повторим через 5 минут, всего до 3 попыток
+      const retry = e && [1, 2, 4, 17, 32, 613].includes(Number(e.code)) && r.attempts < 3;
+      await db.from("ig_comment_replies").update(sent(result)
+        ? { status: "sent", sent_at: new Date().toISOString(), error: null, product_id: product.id }
+        : retry ? { status: "queued", send_after: new Date(Date.now() + 300_000).toISOString(), error: e.message }
+        : { status: "failed", error: `${e?.code ?? ""} ${e?.message ?? "Instagram не ответил"}`.trim() })
+        .eq("comment_id", r.comment_id);
+      console.log(`Ответ на «+» @${r.username ?? r.from_id}:`, sent(result) ? "отправлен" : retry ? "повторим через 5 минут" : "не отправлен");
+    }
+  } finally {
+    sendingReplies = false;
+  }
+}
+
 /* ---------- Вызовы из базы (supabase-instagram.sql) ---------- */
 
 /** Менеджер написал в чате заказа */
@@ -533,9 +658,11 @@ async function fromDatabase(request: Request, secret: string) {
   token().catch(() => {}); // «будильник» заодно прогревает токен
   checkMenu().catch((e) => console.error("Проверка меню:", e));
   // сообщения отправляем уже после ответа базе — она не ждёт дольше нескольких секунд
-  const work = (body?.message ? managerMessage(Number(body.message))
-    : body?.order ? orderStatus(Number(body.order), String(body.from ?? "")) : Promise.resolve())
-    .catch((e) => console.error(e));
+  const work = Promise.all([
+    (body?.message ? managerMessage(Number(body.message))
+      : body?.order ? orderStatus(Number(body.order), String(body.from ?? "")) : Promise.resolve()),
+    sendCommentReplies(), // ответы на «+» в комментариях, которым пора уйти
+  ]).catch((e) => console.error(e));
   await later(work);
   return new Response("ok");
 }
@@ -577,7 +704,13 @@ Deno.serve(async (request) => {
   }
   const update = JSON.parse(raw || "{}");
   const events: Json[] = (update.entry ?? []).flatMap((e: Json) => (e.messaging ?? []).map((m: Json) => ({ ...m, account: e.id })));
+  // комментарии под постами приходят не в messaging, а в changes (поле comments)
+  const comments: Json[] = (update.entry ?? []).flatMap((e: Json) => (e.changes ?? [])
+    .filter((c: Json) => c.field === "comments" && c.value).map((c: Json) => ({ account: String(e.id), value: c.value })));
   const work = (async () => {
+    for (const c of comments) {
+      try { await comment(c.account, c.value); } catch (err) { console.error("Комментарий:", err); }
+    }
     for (const e of events) {
       const igsid = String(e.sender?.id ?? "");
       // своё же сообщение (эхо), прочтение, реакция — пропускаем

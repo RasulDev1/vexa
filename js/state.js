@@ -25,6 +25,7 @@ export const state = {
   variants: {},         // id → { offColors, offSizes, offCombos }
   stock: {},            // id → { qty: { "цвет|размер": штук } }
   sizeCharts: {},       // id → { type: "tops" | "bottoms" | "shoes" | "none", rows: { размер: [ячейки] } } — таблица размеров (size-chart.js)
+  igPosts: {},          // id → ["код поста", …]: посты Instagram, где на «+» в комментариях бот присылает ссылку на этот товар
   costs: null,          // id → закупочная цена (только сотрудникам; null — не настроено в базе)
   ratings: {},          // id товара → { avg, count }: оценки из отзывов (supabase-reviews.sql)
   myReviews: {},        // id товара → оценка, которую поставил этот покупатель
