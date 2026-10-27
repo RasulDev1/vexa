@@ -422,3 +422,5 @@
 .staff-mode .wh-log small { color: var(--muted); font-size: 12px; }
 .staff-mode .vcell.wh-cell { font-variant-numeric: tabular-nums; }
 .staff-mode .vcell.wh-cell.empty:not(.off) { color: var(--danger); }
+.adm-bot-own { margin: 10px 0; }
+.adm-bot-own summary { cursor: pointer; font-weight: 600; padding: 6px 0; }

@@ -505,7 +505,7 @@ async function handle(igsid: string, m: Json) {
    Правила — в CRM → «Чат-бот», в каталоге это igRules [{ post: "код поста" | "", words: ["+", "хочу"], product: id }].
    Правило без поста работает под всеми постами, у которых нет своего правила с этим словом. Прежние привязки из карточки
    товара (igPosts { id: ["код поста"] }) — правила со словом «+». Instagram присылает ID поста, а не код — код берём из ссылки. */
-type Rule = { post: string; words: string[]; product: number };
+type Rule = { post: string; words: string[]; product: number; replies?: Json };
 const POST_CODE = /instagram\.com\/(?:[\w.]+\/)?(?:p|reel|reels|tv)\/([\w-]+)/i;
 const postCodes = new Map<string, string>(); // ID поста → код, пока функция «тёплая»
 
@@ -538,7 +538,7 @@ async function loadCatalog() {
 /** Правила чат-бота из каталога вместе с прежними привязками igPosts */
 function rulesOf(c: Json): Rule[] {
   const rules: Rule[] = (Array.isArray(c.igRules) ? c.igRules : [])
-    .map((r: Json) => ({ post: String(r.post ?? ""), words: (r.words ?? []).map(String), product: Number(r.product) }));
+    .map((r: Json) => ({ post: String(r.post ?? ""), words: (r.words ?? []).map(String), product: Number(r.product), replies: r.replies }));
   for (const [id, codes] of Object.entries((c.igPosts ?? {}) as Record<string, string[]>)) {
     for (const code of codes ?? []) if (!rules.some((r) => r.post === code)) rules.push({ post: code, words: ["+"], product: Number(id) });
   }
@@ -619,10 +619,15 @@ const block = (custom: Json, fallback: string[]) => {
   return list.length ? list : fallback;
 };
 
-async function replyText(username: string | null, product: string, productId: number) {
+async function replyText(username: string | null, product: string, productId: number, postCode: string | null, comment: string) {
   const url = new URL(SHOP_URL);
   url.searchParams.set("p", String(productId));
-  const own = (await loadCatalog()).data.igReplies ?? {};
+  const { data } = await loadCatalog();
+  // свой текст правила, по которому ответили (CRM → «Чат-бот» → правило); пустой блок правила — общий текст
+  const rule = ruleFor(rulesOf(data), postCode ?? "", comment);
+  const common = data.igReplies ?? {}, mine = rule?.product === productId ? rule.replies ?? {} : {};
+  const own = Object.fromEntries(["greetingsNamed", "greetings", "about", "about2", "links"]
+    .map((id) => [id, Array.isArray(mine[id]) && mine[id].length ? mine[id] : common[id]]));
   const greeting = username && Math.random() < 0.6 ? pick(block(own.greetingsNamed, GREETINGS_NAMED)) : pick(block(own.greetings, GREETINGS));
   const parts = [greeting, pick(block(own.about, ABOUT)), pick(block(own.about2, ABOUT_2)), pick(block(own.links, LINKS))];
   // ссылка должна быть в ответе всегда, даже если в CRM блок ссылки написали без {url}
@@ -645,7 +650,7 @@ async function sendCommentReplies() {
         await db.from("ig_comment_replies").update({ status: "skipped", error: "товар снят с продажи" }).eq("comment_id", r.comment_id);
         continue;
       }
-      const result = await ig({ recipient: { comment_id: r.comment_id }, message: { text: await replyText(r.username, product.name, product.id) } });
+      const result = await ig({ recipient: { comment_id: r.comment_id }, message: { text: await replyText(r.username, product.name, product.id, r.post_code, r.text ?? "") } });
       const e = result?.error;
       // временная ошибка (лимит запросов, сбой у Instagram) — повторим через 5 минут, всего до 3 попыток
       const retry = e && [1, 2, 4, 17, 32, 613].includes(Number(e.code)) && r.attempts < 3;
