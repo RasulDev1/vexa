@@ -590,24 +590,34 @@ async function comment(account: string, v: Json) {
     data?.queued ? `ответ в очереди на ${data.send_after}` : `не отвечаем — ${data?.reason}`);
 }
 
-/** Варианты ответа: разный текст — меньше похоже на рассылку. {name} — логин, {product} — товар, {url} — ссылка */
-const REPLIES_NAMED = [
-  "{name}, привет! 👋 Вот ссылка на {product}:\n{url}\n\nВыберите цвет и размер, заказ оформляется прямо на сайте.",
-  "{name}, спасибо за интерес 🙌 {product} — все цвета, размеры и наличие по ссылке:\n{url}",
-  "{name}, держите ссылку 👉 {url}\n\nЭто {product}. Если сомневаетесь с размером, напишите сюда, подскажем.",
+/* Ответ собирается из четырёх блоков через пустую строку: приветствие, описание, описание 2, ссылка.
+   В каждом блоке несколько вариантов, поэтому сочетаний сотни и два ответа подряд почти никогда не совпадают:
+   так Instagram не принимает бота за рассылку. {name} — логин, {product} — товар, {url} — ссылка. */
+const GREETINGS_NAMED = ["{name}, привет! 👋", "Здравствуйте, {name}!", "{name}, добрый день!", "Привет, {name} 🙌", "{name}, спасибо за интерес!"];
+const GREETINGS = ["Здравствуйте! 👋", "Привет!", "Добрый день!", "Спасибо за интерес 🙌", "Привет! Рады, что заглянули"];
+const ABOUT = [ // название товара — без склонений: «Беговая футболка Airline» в любом варианте читается правильно
+  "Отправляем ссылку, как и обещали: {product}.",
+  "Вот товар из поста: {product}.",
+  "Товар, о котором вы спрашивали: {product}.",
+  "{product} — со всеми фото и подробностями на сайте.",
+  "Это {product}, все подробности по ссылке ниже.",
 ];
-const REPLIES = [
-  "Здравствуйте! Ссылка на {product}:\n{url}\n\nЕсли будут вопросы по размеру, пишите сюда, ответим.",
-  "Добрый день! 👋 {product} здесь:\n{url}\n\nЗаказ оформляется за минуту, статус придёт сюда, в директ.",
-  "Привет! Как и обещали, ссылка на {product} 👇\n{url}",
+const ABOUT_2 = [
+  "В карточке есть все цвета, размеры и наличие.",
+  "Выберите цвет и размер, заказ оформляется за минуту.",
+  "Если сомневаетесь с размером, напишите сюда, подскажем.",
+  "После заказа статус будет приходить сюда, в директ.",
+  "Там же таблица размеров, чтобы не ошибиться.",
 ];
+const LINKS = ["👉 {url}", "Ссылка: {url}", "Смотреть товар: {url}", "{url}"];
 const pick = <T>(list: T[]) => list[Math.floor(Math.random() * list.length)];
 
 function replyText(username: string | null, product: string, productId: number) {
   const url = new URL(SHOP_URL);
   url.searchParams.set("p", String(productId));
-  const template = username && Math.random() < 0.6 ? pick(REPLIES_NAMED) : pick(REPLIES);
-  return template.replace("{name}", username ?? "").replace("{product}", product).replace("{url}", url.href);
+  const greeting = username && Math.random() < 0.6 ? pick(GREETINGS_NAMED) : pick(GREETINGS);
+  return [greeting, pick(ABOUT), pick(ABOUT_2), pick(LINKS)].join("\n\n")
+    .replace("{name}", username ?? "").replace("{product}", product).replace("{url}", url.href);
 }
 
 /** Очередь ответов: раз в минуту (будильник базы) отправляем то, что пора, с паузой 8–20 с между ответами */
