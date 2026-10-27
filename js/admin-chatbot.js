@@ -2,7 +2,7 @@
 // Правило — пост, слова и товар: кто напишет под этим постом одно из слов, получит в директ ссылку на товар
 // (бот instagram-bot, supabase-instagram-comments.sql). Правило без поста работает под всеми остальными постами.
 // Правила хранятся в каталоге: igRules = [{ post: "код поста" | "", words: ["+", "хочу"], product: id, replies? }].
-// У каждого правила свой текст ответа: replies = { greetingsNamed, greetings, about, about2, links } (в каждом блоке
+// У каждого правила свой текст ответа: replies = { greetingsNamed, greetings, about, about2, links, buttons } (в каждом блоке
 // список вариантов) и greetingMode: "named" — всегда приветствие с логином, "plain" — всегда без, нет — вперемешку.
 // Пустой блок — стандартные варианты бота. Общего текста нет; прежний общий (igReplies) подставляется в правила без своего.
 import { $, escapeHtml, haptic, toast } from "./core.js?v=20261001b";
@@ -27,6 +27,7 @@ const BLOCKS = [
   ["greetings", "Приветствие без логина", "если логина нет и в части ответов для разнообразия", ["Здравствуйте! 👋", "Привет!", "Добрый день!", "Спасибо за интерес 🙌", "Привет! Рады, что заглянули"]],
   ["about", "Описание", "{product} — название товара; пишите так, чтобы его не нужно было склонять", ["Отправляем ссылку, как и обещали: {product}.", "Вот товар из поста: {product}.", "Товар, о котором вы спрашивали: {product}.", "{product} — со всеми фото и подробностями на сайте.", "Это {product}, все подробности по ссылке ниже."]],
   ["about2", "Описание 2", "", ["В карточке есть все цвета, размеры и наличие.", "Выберите цвет и размер, заказ оформляется за минуту.", "Если сомневаетесь с размером, напишите сюда, подскажем.", "После заказа статус будет приходить сюда, в директ.", "Там же таблица размеров, чтобы не ошибиться."]],
+  ["buttons", "Текст кнопки", "кнопка со ссылкой под фото; до 20 знаков", ["Смотреть и заказать"]],
   ["links", "Ссылка", "запасной вариант: обычно ссылка уходит кнопкой «Смотреть и заказать» под фото; {url} нужна в каждом варианте", ["👉 {url}", "Ссылка: {url}", "Смотреть товар: {url}", "{url}"]],
 ];
 const linesOf = (text) => String(text).split("\n").map((x) => x.trim()).filter(Boolean).slice(0, 30);
@@ -45,18 +46,20 @@ const effective = (id, own) => { const mine = linesOf(own[id] ?? ""); return min
 const combos = (own) => {
   const n = (id) => effective(id, own).length;
   const m = own.greetingMode, greetings = m === "named" ? n("greetingsNamed") : m === "plain" ? n("greetings") : n("greetingsNamed") + n("greetings");
-  return greetings * n("about") * n("about2") * n("links");
+  return greetings * n("about") * n("about2") * n("buttons");
 };
 const htmlLines = (text) => escapeHtml(text).replace(/\n/g, "<br>");
 
 function makeSample(own, name) {
   const pick = (id) => { const all = effective(id, own); return all[Math.floor(Math.random() * all.length)]; };
   const product = name || state.catalogProducts[0]?.name || "Товар";
-  return [pick(greetingBlock(own)), pick("about"), pick("about2"), pick("links")].join("\n\n")
+  // как в карточке: приветствие, описание, описание 2 и кнопка со ссылкой
+  return [pick(greetingBlock(own)), pick("about"), pick("about2"), `[ ${pick("buttons")} ]`].join("\n\n")
     .replaceAll("{name}", "dana.run").replaceAll("{product}", product).replaceAll("{url}", `${location.origin}${location.pathname.replace(/[^/]*$/, "")}?p=1`);
 }
 
 const NO_URL = "В каждом варианте ссылки должно быть {url} — туда бот подставит ссылку на товар";
+const BUTTON_MAX = 20; // длиннее Instagram кнопку не примет
 
 /** Правила из каталога; старые привязки из карточки товара (igPosts) — как правила со словом «+» */
 function rules() {
@@ -96,7 +99,7 @@ function formHtml() {
     <p class="label">Текст ответа</p>
     <p class="adm-sub">Ответ собирается из блоков: приветствие, описание, описание 2 и ссылка. В каждом блоке бот случайно берёт
       один вариант — пишите каждый с новой строки. В директ ответ приходит карточками с фото товара (по одной на цвет):
-      приветствие — заголовок, описание — под ним, ссылка — кнопкой «Смотреть и заказать». Описание 2 добавляется,
+      приветствие — заголовок, описание — под ним, ссылка — кнопкой. Описание 2 добавляется,
       если вместе с описанием влезает в 80 знаков. Сочетаний: <b id="botRuleCombos">${combos(e.texts)}</b>.</p>
     <label class="field"><span>Приветствие <small>логин — имя человека в Instagram</small></span><select id="botGreetMode">
       ${MODES.map(([v, title]) => `<option value="${v}" ${v === e.texts.greetingMode ? "selected" : ""}>${title}</option>`).join("")}</select></label>
@@ -144,6 +147,8 @@ async function save(button) {
   if (!words.length) return fail("Впишите хотя бы одно слово, например +");
   if (!product) return fail("Выберите товар");
   if (linesOf(editing.texts.links).some((l) => !l.includes("{url}"))) return fail(NO_URL);
+  const long = linesOf(editing.texts.buttons).find((l) => l.length > BUTTON_MAX);
+  if (long) return fail(`Текст кнопки «${long}» длиннее ${BUTTON_MAX} знаков — Instagram его не примет`);
   const list = rules();
   const clash = list.find((r, i) => i !== editing.index && r.post === post && r.words.some((w) => words.includes(w)));
   if (clash) return fail(`Слово «${clash.words.find((w) => words.includes(w))}» ${post ? "под этим постом" : "под любым постом"} уже ведёт на «${productOf(clash.product)?.name ?? "другой товар"}»`);
