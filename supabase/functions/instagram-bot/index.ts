@@ -720,31 +720,37 @@ async function productPhotos(id: number) {
 
 const cut = (t: string, n: number) => (t.length > n ? t.slice(0, n - 1).trimEnd() + "…" : t);
 const BUTTON = "Смотреть и заказать";
-/** Под ответом на комментарий — те же «Магазин» и «Мои заказы», что в меню директа; «Магазин» отсюда — без приветствия */
-const MENU_BUTTONS = [{ type: "postback", title: "🛍 Магазин", payload: "SHOP_COMMENT" }, { type: "postback", title: "📦 Мои заказы", payload: "ORDERS" }];
+/** «Магазин» и «Мои заказы» — кнопками у поля ввода (быстрые ответы), как в директе; «Магазин» отсюда — без приветствия */
+const MENU_QUICK = [quick("🛍 Магазин", "SHOP_COMMENT"), Q_ORDERS];
 
 /** Ответ на комментарий в директ. Instagram разрешает на комментарий только одно сообщение, поэтому всё — в нём:
-    1) карточки с фото (по одной на цвет, листаются) — приветствие, описание, кнопка со ссылкой, «Магазин» и «Мои заказы»;
+    1) карточки с фото (по одной на цвет, листаются): приветствие, описание и кнопка со ссылкой на товар,
+       а «Магазин» и «Мои заказы» — у поля ввода. Не принял с ними — те же карточки без них (меню ☰ у поля ввода есть всегда);
     2) не вышло — текст с кнопкой: ссылка в кнопке, поэтому внизу нет превью ссылки;
     3) не вышло и это — обычный текст со ссылкой. Временная ошибка (лимит, сбой) — сразу наружу, повторим позже. */
 async function sendReply(commentId: string, r: Reply, photos: string[]): Promise<{ result: Json; form: string }> {
   const temporary = (res: Json) => [1, 2, 4, 17, 32, 613].includes(Number(res?.error?.code));
   const to = { comment_id: commentId };
+  const product = { type: "web_url", url: r.url, title: r.button };
   if (photos.length) {
     const subtitle = r.about.length + r.about2.length + 1 <= 80 ? `${r.about}\n${r.about2}` : r.about;
     const elements = photos.map((image_url) => ({ title: cut(r.greeting, 80), subtitle: cut(subtitle, 80), image_url,
-      default_action: { type: "web_url", url: r.url }, buttons: [{ type: "web_url", url: r.url, title: r.button }, ...MENU_BUTTONS] }));
-    const result = await ig({ recipient: to, message: { attachment: { type: "template", payload: { template_type: "generic", elements } } } });
+      default_action: { type: "web_url", url: r.url }, buttons: [product] }));
+    const cards = { attachment: { type: "template", payload: { template_type: "generic", elements } } };
+    let result = await ig({ recipient: to, message: { ...cards, quick_replies: MENU_QUICK } });
+    if (sent(result) || temporary(result)) return { result, form: `карточки с фото (${photos.length}) и кнопки у поля ввода` };
+    console.error("Карточки с кнопками у поля ввода не прошли:", result?.error?.message ?? result);
+    result = await ig({ recipient: to, message: cards });
     if (sent(result) || temporary(result)) return { result, form: `карточки с фото (${photos.length})` };
     console.error("Карточки с фото в ответ на комментарий не прошли:", result?.error?.message ?? result);
   }
   const text = cut([r.greeting, r.about, r.about2].join("\n\n"), 640);
   const result = await ig({ recipient: to, message: { attachment: { type: "template", payload: { template_type: "button", text,
-    buttons: [{ type: "web_url", url: r.url, title: r.button }, ...MENU_BUTTONS] } } } });
+    buttons: [product] } }, quick_replies: MENU_QUICK } });
   if (sent(result) || temporary(result)) return { result, form: "текст с кнопкой" };
   console.error("Текст с кнопкой в ответ на комментарий не прошёл:", result?.error?.message ?? result);
   return { result: await ig({ recipient: to, message: { text: [r.greeting, r.about, r.about2, r.link].join("\n\n"),
-    quick_replies: [quick("🛍 Магазин", "SHOP_COMMENT"), Q_ORDERS] } }), form: "текст" };
+    quick_replies: MENU_QUICK } }), form: "текст" };
 }
 
 /** Очередь ответов: раз в минуту (будильник базы) отправляем то, что пора, с паузой 8–20 с между ответами */
