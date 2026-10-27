@@ -696,7 +696,10 @@ async function replyParts(username: string | null, product: string, productId: n
   const common = data.igReplies ?? {}, mine = rule?.product === productId ? rule.replies ?? {} : {};
   const own = Object.fromEntries(["greetingsNamed", "greetings", "about", "about2", "links"]
     .map((id) => [id, Array.isArray(mine[id]) && mine[id].length ? mine[id] : common[id]]));
-  const greeting = username && Math.random() < 0.6 ? pick(block(own.greetingsNamed, GREETINGS_NAMED)) : pick(block(own.greetings, GREETINGS));
+  // приветствие с логином, без или вперемешку — как выбрали в CRM (у правила своё или общее)
+  const mode = String(mine.greetingMode || common.greetingMode || "mixed");
+  const named = Boolean(username) && (mode === "named" || (mode !== "plain" && Math.random() < 0.6));
+  const greeting = named ? pick(block(own.greetingsNamed, GREETINGS_NAMED)) : pick(block(own.greetings, GREETINGS));
   const fill = (t: string) => t.replaceAll("{name}", username ?? "").replaceAll("{product}", product).replaceAll("{url}", url.href);
   let link = pick(block(own.links, LINKS));
   // ссылка должна быть в ответе всегда, даже если в CRM блок ссылки написали без {url}
