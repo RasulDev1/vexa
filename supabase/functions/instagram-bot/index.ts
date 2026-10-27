@@ -574,9 +574,13 @@ async function productOnSale(id: number): Promise<{ id: number; name: string } |
 /** Комментарий под постом: слово из правила → ответ в очередь */
 async function comment(account: string, v: Json) {
   const from = String(v.from?.id ?? ""), mediaId = String(v.media?.id ?? ""), text = String(v.text ?? "");
-  if (!v.id || !from || !mediaId || from === account || !text.trim()) return;
+  // каждый комментарий — в логи: видно, что Instagram их присылает, даже если слово не подошло
+  console.log(`Комментарий от @${v.from?.username ?? (from || "?")} под постом ${mediaId || "?"}: «${text.slice(0, 40)}»`);
+  if (from === account) return console.log("Это комментарий самого магазина — на свои комментарии бот не отвечает");
+  if (!v.id || !from || !mediaId || !text.trim()) return;
   const rules = rulesOf((await loadCatalog()).data);
-  if (!rules.some((r) => r.words.some((w) => matches(text, w)))) return; // ни одного подходящего слова — пост даже не смотрим
+  // ни одного подходящего слова — пост даже не смотрим
+  if (!rules.some((r) => r.words.some((w) => matches(text, w)))) return console.log(`Нет правила со словом из «${text.slice(0, 40)}» — не отвечаем`);
   const code = await postCode(mediaId);
   const rule = ruleFor(rules, code, text);
   const product = rule ? await productOnSale(rule.product) : null;
