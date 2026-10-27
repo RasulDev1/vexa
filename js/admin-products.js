@@ -136,7 +136,6 @@ function openVariantEditor(id) {
     price: String(product.oldPrice || product.price), sale: product.oldPrice ? String(product.price) : "",
     cost: state.costs?.[id] ? String(state.costs[id]) : "", // закупочная цена (видят только сотрудники)
     ...chartDraft(product),
-    igPosts: (state.igPosts[id] || []).map((code) => `https://www.instagram.com/p/${code}/`).join("\n"),
   };
   renderVariantEditor();
   sheetBody.onclick = async (e) => {
@@ -179,11 +178,6 @@ function openVariantEditor(id) {
       $("pricePreview").innerHTML = pricePreview();
       if ($("costPreview")) $("costPreview").innerHTML = costPreview();
       $("priceHint").textContent = "";
-      return;
-    }
-    if (e.target.id === "igPosts") {
-      draft.igPosts = e.target.value;
-      $("igPostsHint").textContent = "";
       return;
     }
     if (e.target.dataset.chartCell) {
@@ -263,27 +257,6 @@ function sizeChartToSave() {
   return JSON.stringify(value) === JSON.stringify(state.sizeCharts[p.id] || null) ? undefined : value;
 }
 
-/* ---------- Посты Instagram: «Пишите + в комментариях» ---------- */
-// Код поста — из ссылки instagram.com/p/КОД/ или /reel/КОД/. Бот (instagram-bot) по нему находит товар,
-// когда под постом пишут «+», и присылает человеку в директ ссылку на этот товар.
-const IG_POST = /instagram\.com\/(?:[\w.]+\/)?(?:p|reel|reels|tv)\/([\w-]{5,40})/i;
-
-/** Коды постов из поля: по одной ссылке на строку. bad — строки, в которых нет ссылки на пост */
-function igPostCodes(text) {
-  const codes = [], bad = [];
-  for (const line of String(text).split(/[\s,]+/).map((x) => x.trim()).filter(Boolean)) {
-    const code = IG_POST.exec(line)?.[1];
-    if (code) { if (!codes.includes(code)) codes.push(code); } else bad.push(line);
-  }
-  return { codes, bad };
-}
-
-const igPostsEditorHtml = () => !api.setIgPosts ? "" : `<p class="label">Instagram: «+» в комментариях</p>
-    <p class="adm-sub">Вставьте ссылки на посты или рилсы с этим товаром, по одной на строку. Кто напишет «+» под таким постом,
-      получит в директ ссылку на товар. Ссылку на пост можно скопировать в Instagram: ⋯ → «Копировать ссылку».</p>
-    <label class="field"><textarea id="igPosts" rows="3" placeholder="https://www.instagram.com/p/…">${escapeHtml(draft.igPosts)}</textarea></label>
-    <p class="hint" id="igPostsHint"></p>`;
-
 /** Что увидит покупатель с введёнными ценами */
 function pricePreview() {
   const base = Math.round(Number(draft.price)) || 0, sale = Math.round(Number(draft.sale)) || 0;
@@ -350,7 +323,6 @@ function renderVariantEditor() {
     </table></div>
     ${trackStock ? `<p class="vtotal">${warehouseMode() ? "В продаже" : "Всего на складе"}: <b id="stockTotal">${warehouseMode() ? saleTotal() : stockTotal()}</b> шт.</p>` : ""}
     ${sizeChartEditorHtml()}
-    ${igPostsEditorHtml()}
     <p class="hint" id="hint"></p>
     <button class="primary" id="saveVariants">Сохранить</button>
     ${warehouseMode() ? `<button class="ghost" id="unlistProduct">Снять с продажи</button>
@@ -373,13 +345,6 @@ async function saveVariants(button) {
     $("priceBase").scrollIntoView({ block: "center" });
     return haptic("medium");
   }
-  const posts = api.setIgPosts ? igPostCodes(draft.igPosts) : null;
-  if (posts?.bad.length) {
-    $("igPostsHint").textContent = `Это не ссылка на пост Instagram: ${posts.bad[0]}`;
-    $("igPosts").scrollIntoView({ block: "center" });
-    return haptic("medium");
-  }
-  const postsChanged = posts && posts.codes.join() !== (state.igPosts[p.id] || []).join();
   const cost = Math.round((Number(String(draft.cost).replace(",", ".")) || 0) * 100) / 100;
   if (cost < 0 || cost > 10000000) { $("priceHint").textContent = "Проверьте закупочную цену"; return haptic("medium"); }
   const costChanged = state.costs && cost !== (Number(state.costs[p.id]) || 0);
@@ -394,7 +359,6 @@ async function saveVariants(button) {
     }
     const chart = api.setSizeChart ? sizeChartToSave() : undefined;
     if (chart !== undefined) await api.setSizeChart(p.id, chart);
-    if (postsChanged) await api.setIgPosts(p.id, posts.codes);
     await api.setVariants(p.id, { offColors: [...draft.offColors], offSizes: [...draft.offSizes], offCombos });
     if (!warehouseMode()) await api.setStock(p.id, qty);
   }, "Изменения сохранены");

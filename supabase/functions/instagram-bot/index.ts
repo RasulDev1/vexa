@@ -5,9 +5,9 @@
 // Заказ по ссылке из шапки профиля (supabase-instagram-bio.sql): после заказа сайт даёт кнопку в директ с кодом
 // (ig.me/m/магазин?ref=код). Код приходит боту — он привязывает заказ к аккаунту и пишет «Заказ оформлен».
 // В Meta → Webhooks должно быть включено поле messaging_referral (вместе с messages и messaging_postbacks).
-// «Пишите + в комментариях» (supabase-instagram-comments.sql): на «+» под постом, к которому в CRM привязан товар,
-// бот один раз отвечает автору в директ ссылкой на этот товар. Нужны поле comments в Webhooks и разрешение
-// instagram_business_manage_comments; ответы уходят из очереди с паузами, текст — один из нескольких вариантов.
+// «Пишите + в комментариях» (supabase-instagram-comments.sql): правила задаются в CRM → «Чат-бот» (пост, слова, товар).
+// На такое слово под постом бот один раз отвечает автору в директ ссылкой на товар. Нужны поле comments в Webhooks
+// и разрешение instagram_business_manage_comments; ответы уходят из очереди с паузами, текст — один из нескольких вариантов.
 //
 // Секреты функции (Edge Functions → Secrets):
 //   IG_APP_ID       — Instagram app ID (App Dashboard → Instagram → API setup with Instagram login)
@@ -502,9 +502,10 @@ async function handle(igsid: string, m: Json) {
 }
 
 /* ---------- «Пишите + в комментариях» (supabase-instagram-comments.sql) ----------
-   К посту товар привязывают в CRM (карточка товара → «Instagram: «+» в комментариях»): в каталоге это
-   igPosts { id товара: ["код поста", …] }. Instagram присылает ID поста, а не код — код берём из его ссылки (permalink). */
-const PLUS = /^\s*(?:[+＋]+|плюс)[\s!.)❤️🔥👍🙏]*$/iu;
+   Правила — в CRM → «Чат-бот», в каталоге это igRules [{ post: "код поста" | "", words: ["+", "хочу"], product: id }].
+   Правило без поста работает под всеми постами, у которых нет своего правила с этим словом. Прежние привязки из карточки
+   товара (igPosts { id: ["код поста"] }) — правила со словом «+». Instagram присылает ID поста, а не код — код берём из ссылки. */
+type Rule = { post: string; words: string[]; product: number };
 const POST_CODE = /instagram\.com\/(?:[\w.]+\/)?(?:p|reel|reels|tv)\/([\w-]+)/i;
 const postCodes = new Map<string, string>(); // ID поста → код, пока функция «тёплая»
 
@@ -534,31 +535,58 @@ async function loadCatalog() {
   return catalogCache;
 }
 
-/** Товар поста: id и название; null — пост ни к чему не привязан или товар снят с продажи */
-async function productOfPost(code: string): Promise<{ id: number; name: string } | null> {
+/** Правила чат-бота из каталога вместе с прежними привязками igPosts */
+function rulesOf(c: Json): Rule[] {
+  const rules: Rule[] = (Array.isArray(c.igRules) ? c.igRules : [])
+    .map((r: Json) => ({ post: String(r.post ?? ""), words: (r.words ?? []).map(String), product: Number(r.product) }));
+  for (const [id, codes] of Object.entries((c.igPosts ?? {}) as Record<string, string[]>)) {
+    for (const code of codes ?? []) if (!rules.some((r) => r.post === code)) rules.push({ post: code, words: ["+"], product: Number(id) });
+  }
+  return rules.filter((r) => r.product && r.words.length);
+}
+
+/** Текст комментария для сравнения: маленькие буквы, «ё» как «е», «＋» как «+» */
+const normal = (s: string) => s.toLowerCase().replace(/ё/g, "е").replace(/＋/g, "+");
+/** Подходит ли слово правила: «+» — комментарий из одних плюсов (и смайлов), иначе — слово или фраза целиком внутри текста */
+function matches(text: string, word: string) {
+  const t = normal(text), w = normal(word).trim();
+  if (!w) return false;
+  if (/^\++$/.test(w)) return /^\++$/.test(t.replace(/[^\p{L}\p{N}+]/gu, "")) && t.includes("+");
+  const words = (s: string) => ` ${s.replace(/[^\p{L}\p{N}+]+/gu, " ").trim()} `;
+  return words(t).includes(words(w));
+}
+
+/** Правило для комментария: сначала правила этого поста, потом общие (без поста) */
+function ruleFor(rules: Rule[], code: string, text: string): Rule | null {
+  const fits = (r: Rule) => r.words.some((w) => matches(text, w));
+  return rules.find((r) => r.post && r.post === code && fits(r)) ?? rules.find((r) => !r.post && fits(r)) ?? null;
+}
+
+/** Товар на продаже: название; null — товар удалён или снят с продажи */
+async function productOnSale(id: number): Promise<{ id: number; name: string } | null> {
   const { data: c, names } = await loadCatalog();
-  const entry = Object.entries((c.igPosts ?? {}) as Record<string, string[]>).find(([, list]) => list?.includes(code));
-  if (!entry) return null;
-  const id = Number(entry[0]);
   const custom = (c.products ?? []).find((p: Json) => Number(p.num) === id);
   if (custom) return custom.listed === false ? null : { id, name: String(custom.name) };
   if ((c.hidden ?? []).map(Number).includes(id) || !names.has(String(id))) return null;
   return { id, name: names.get(String(id))! };
 }
 
-/** Комментарий под постом: «+» → ответ в очередь */
+/** Комментарий под постом: слово из правила → ответ в очередь */
 async function comment(account: string, v: Json) {
-  const from = String(v.from?.id ?? ""), mediaId = String(v.media?.id ?? "");
-  if (!v.id || !from || !mediaId || from === account || !PLUS.test(String(v.text ?? ""))) return;
+  const from = String(v.from?.id ?? ""), mediaId = String(v.media?.id ?? ""), text = String(v.text ?? "");
+  if (!v.id || !from || !mediaId || from === account || !text.trim()) return;
+  const rules = rulesOf((await loadCatalog()).data);
+  if (!rules.some((r) => r.words.some((w) => matches(text, w)))) return; // ни одного подходящего слова — пост даже не смотрим
   const code = await postCode(mediaId);
-  const product = code ? await productOfPost(code) : null;
-  if (!product) return console.log(`«+» под постом ${code || mediaId}: к посту не привязан товар — не отвечаем`);
+  const rule = ruleFor(rules, code, text);
+  const product = rule ? await productOnSale(rule.product) : null;
+  if (!product) return console.log(`Комментарий «${text.slice(0, 40)}» под постом ${code || mediaId}: нет правила или товар снят с продажи — не отвечаем`);
   const { data, error } = await db.rpc("ig_comment_enqueue", {
-    p_comment_id: String(v.id), p_media_id: mediaId, p_post_code: code, p_product_id: product.id,
-    p_from_id: from, p_username: v.from?.username ?? null, p_text: String(v.text ?? ""),
+    p_comment_id: String(v.id), p_media_id: mediaId, p_post_code: code || null, p_product_id: product.id,
+    p_from_id: from, p_username: v.from?.username ?? null, p_text: text,
   });
   if (error) return console.error("ig_comment_enqueue (запустите supabase-instagram-comments.sql):", error.message);
-  console.log(`«+» от @${v.from?.username ?? from} под постом ${code} (${product.name}):`,
+  console.log(`«${text.slice(0, 40)}» от @${v.from?.username ?? from} под постом ${code} (${product.name}):`,
     data?.queued ? `ответ в очереди на ${data.send_after}` : `не отвечаем — ${data?.reason}`);
 }
 
@@ -592,9 +620,9 @@ async function sendCommentReplies() {
     if (error) { if (!/ig_comment_claim/.test(error.message)) console.error("ig_comment_claim:", error.message); return; }
     for (const [i, r] of ((due ?? []) as Json[]).entries()) {
       if (i) await new Promise((ok) => setTimeout(ok, 8_000 + Math.random() * 12_000));
-      const product = r.post_code ? await productOfPost(r.post_code) : null;
+      const product = r.product_id ? await productOnSale(Number(r.product_id)) : null;
       if (!product) {
-        await db.from("ig_comment_replies").update({ status: "skipped", error: "товар отвязан от поста или снят с продажи" }).eq("comment_id", r.comment_id);
+        await db.from("ig_comment_replies").update({ status: "skipped", error: "товар снят с продажи" }).eq("comment_id", r.comment_id);
         continue;
       }
       const result = await ig({ recipient: { comment_id: r.comment_id }, message: { text: replyText(r.username, product.name, product.id) } });

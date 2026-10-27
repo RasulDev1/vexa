@@ -407,6 +407,8 @@ export const supabaseApi = {
   reviewSave: (id, rating, body) => rpc("review_save", { p_product: id, p_rating: rating, p_body: body }),
   reviewDelete: (reviewId) => rpc("review_delete", { p_id: reviewId }),
   reviewsList: () => rpc("reviews_list"),
+  /** «Чат-бот»: последние ответы в директ на комментарии (supabase-instagram-comments.sql) */
+  igCommentLog: () => rpc("ig_comment_log"),
   reviewHide: (reviewId, hidden) => rpc("review_hide", { p_id: reviewId, p_hidden: Boolean(hidden) }),
   reviewReply: (reviewId, text) => rpc("review_reply", { p_id: reviewId, p_text: text || null }),
 
@@ -465,7 +467,7 @@ export const supabaseApi = {
 
 /* ---------- Каталог в базе (supabase-catalog.sql): без ключей GitHub, изменения видны сразу ---------- */
 const PHOTO_BUCKET = "products";
-const EMPTY_CATALOG = { products: [], hidden: [], variants: {}, stock: {}, staff: [], prices: {}, order: [], sizeCharts: {}, igPosts: {} };
+const EMPTY_CATALOG = { products: [], hidden: [], variants: {}, stock: {}, staff: [], prices: {}, order: [], sizeCharts: {}, igRules: [] };
 let catalogInDb = false; // каталог уже хранится в базе (иначе — первая загрузка из catalog/catalog.json)
 
 /** Опубликованный в репозитории каталог — им база заполняется при первом сохранении */
@@ -565,15 +567,10 @@ export const supabaseCatalogApi = {
     c.sizeCharts ||= {};
     if (chart) c.sizeCharts[id] = chart; else delete c.sizeCharts[id];
   }),
-  /** Посты Instagram товара: коды постов (instagram.com/p/КОД). На «+» под ними бот пришлёт в директ ссылку на товар */
-  setIgPosts: (id, codes) => updateCatalog((c) => {
-    c.igPosts ||= {};
-    // один пост — один товар: убираем этот пост у других товаров
-    for (const [other, list] of Object.entries(c.igPosts)) {
-      c.igPosts[other] = list.filter((code) => !codes.includes(code));
-      if (!c.igPosts[other].length) delete c.igPosts[other];
-    }
-    if (codes.length) c.igPosts[id] = codes;
+  /** Правила чат-бота Instagram (CRM → «Чат-бот»): [{ post, words, product }]. Прежние привязки igPosts в них уже перенесены */
+  setIgRules: (rules) => updateCatalog((c) => {
+    c.igRules = rules;
+    delete c.igPosts;
   }),
   setStock: (id, qty) => updateCatalog((c) => { if (qty) c.stock[id] = { qty }; else delete c.stock[id]; }),
   /** Порядок карточек в каталоге: список id товаров */
@@ -630,6 +627,7 @@ export const supabaseCatalogApi = {
       if (c.prices) delete c.prices[id];
       if (c.sizeCharts) delete c.sizeCharts[id];
       if (c.igPosts) delete c.igPosts[id];
+      if (c.igRules) c.igRules = c.igRules.filter((r) => r.product !== id);
       if (c.order) c.order = c.order.filter((x) => x !== id);
     });
     for (const color of removed?.colors || []) {
