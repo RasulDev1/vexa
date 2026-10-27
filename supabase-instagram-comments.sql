@@ -1,12 +1,12 @@
 -- =====================================================================
---  VEXA · «Пишите + в комментариях»: ответ в директ со ссылкой на товар
+--  VEXA · «Пишите + в комментариях»: ответ в директ со ссылкой на товар (CRM → «Чат-бот»)
 --  Запускать ПОСЛЕ supabase-instagram.sql.
 --  Supabase → SQL Editor → новая вкладка (New query) → вставить ЦЕЛИКОМ → Run.
 --  Можно запускать повторно. Заказы, переписка и клиенты не меняются.
 --
 --  Как это работает:
---   • в CRM в карточке товара сотрудник вставляет ссылки на посты с этим товаром (хранятся в каталоге, igPosts);
---   • человек пишет «+» под таким постом — Instagram присылает комментарий боту (поле comments в Webhooks);
+--   • в CRM → «Чат-бот» сотрудник задаёт правила: пост, слова («+», «хочу»…) и товар (хранятся в каталоге, igRules);
+--   • человек пишет такое слово под постом — Instagram присылает комментарий боту (поле comments в Webhooks);
 --   • бот ставит ответ в очередь (эта таблица) и отправляет его не сразу, а через 20–60 секунд и не чаще
 --     одного ответа в 25–60 секунд: так Instagram не принимает бота за рассылку спама;
 --   • на один комментарий — один ответ в директ (так требует Instagram), одному человеку под одним постом — тоже один,
@@ -89,10 +89,23 @@ end $$;
 revoke execute on function public.ig_comment_claim(int) from public, anon, authenticated;
 grant execute on function public.ig_comment_claim(int) to service_role;
 
+-- ---------- 3. CRM → «Чат-бот»: последние ответы на комментарии (только сотрудникам) ----------
+create or replace function public.ig_comment_log()
+returns jsonb language plpgsql stable security definer set search_path = '' as $$
+begin
+  if not public.is_staff() then raise exception 'staff:forbidden' using errcode = '42501'; end if;
+  return coalesce((select jsonb_agg(jsonb_build_object('username', r.username, 'post', r.post_code, 'product', r.product_id,
+      'text', r.text, 'status', r.status, 'error', r.error, 'at', r.created_at, 'sent_at', r.sent_at) order by r.created_at desc)
+    from (select * from public.ig_comment_replies order by created_at desc limit 50) r), '[]'::jsonb);
+end $$;
+revoke execute on function public.ig_comment_log() from public;
+grant execute on function public.ig_comment_log() to anon, authenticated;
+
 notify pgrst, 'reload schema';
 
 -- ---------- Проверка: всё должно быть «true» ----------
 select exists (select 1 from information_schema.tables
                where table_schema = 'public' and table_name = 'ig_comment_replies') as "очередь ответов на «+»",
        exists (select 1 from pg_proc where proname = 'ig_comment_enqueue')            as "постановка в очередь",
+       exists (select 1 from pg_proc where proname = 'ig_comment_log')                as "журнал ответов для CRM",
        exists (select 1 from pg_extension where extname = 'pg_cron')                  as "будильник бота (разбирает очередь)";
