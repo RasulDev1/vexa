@@ -9,7 +9,7 @@
 <link rel="stylesheet" href="css/app.css?v=20261024a">
 <link rel="stylesheet" href="css/chat.css?v=20261018v">
 <link rel="stylesheet" href="css/orders.css?v=20261024a">
-<link rel="stylesheet" href="css/staff.css?v=20261024a">
+<link rel="stylesheet" href="css/staff.css?v=20261027a">
 <!-- Шрифты лежат на сайте (fonts/); кириллицу просим сразу, чтобы текст не перерисовывался -->
 <link rel="stylesheet" href="css/demo.css?v=20261018v">
 <!-- Внутри страницы «телефон + CRM» (../index.html) своя полоса «Демо» не нужна: там общая -->
@@ -40,9 +40,10 @@
     "./js/admin-customers.js?v=20261001b": "./js/admin-customers.js?v=20261018v",
     "./js/admin-tasks.js?v=20261001b": "./js/admin-tasks.js?v=20261018v",
     "./js/admin-reviews.js?v=20261001b": "./js/admin-reviews.js?v=20261018v",
+    "./js/admin-chatbot.js?v=20261001b": "./js/admin-chatbot.js?v=20261027a",
     "./js/admin-warehouse.js?v=20261001b": "./js/admin-warehouse.js?v=20261018v",
     "./js/reviews.js?v=20261001b": "./js/reviews.js?v=20261018v",
-    "./js/crm.js?v=20261001b": "./js/crm.js?v=20261018v",
+    "./js/crm.js?v=20261001b": "./js/crm.js?v=20261027a",
     "./js/admin-dashboard.js?v=20261001b": "./js/admin-dashboard.js?v=20261018v",
     "./js/admin-export.js?v=20261001b": "./js/admin-export.js?v=20261018v",
     "./js/admin-bar-sort.js?v=20261001b": "./js/admin-bar-sort.js?v=20261018v",
@@ -70,7 +71,7 @@
   }
 }
 </script>
-<script type="module" src="js/crm.js?v=20261018v"></script>
+<script type="module" src="js/crm.js?v=20261027a"></script>
 <link rel="modulepreload" href="js/config.js?v=20261018v">
 <link rel="modulepreload" href="js/core.js?v=20261018v">
 <link rel="modulepreload" href="js/data.js?v=20261018v">
@@ -109,6 +110,7 @@
       <button class="admin-btn" id="adminCustomersButton" hidden>Клиенты</button>
       <button class="admin-btn" id="adminTasksButton" hidden>Задачи</button>
       <button class="admin-btn" id="adminReviewsButton" hidden>Отзывы</button>
+      <button class="admin-btn" id="adminChatbotButton" hidden>Чат-бот</button>
       <button class="admin-btn" id="adminProductsButton">Товары</button>
       <button class="admin-btn" id="adminWarehouseButton" hidden>Склад</button>
       <button class="admin-btn" id="adminAnalyticsButton" hidden>Аналитика</button>
