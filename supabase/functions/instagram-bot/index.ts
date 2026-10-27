@@ -615,9 +615,13 @@ async function pollComments() {
   if (!Array.isArray(res?.data)) {
     return console.error("Не удалось прочитать комментарии под постами (нужно разрешение instagram_business_manage_comments в ссылке подключения):", res?.error?.message ?? res);
   }
+  let media = res.data as Json[];
+  // Instagram иногда отдаёт пустой список, когда просишь посты сразу с комментариями: тогда — посты отдельно,
+  // комментарии к каждому отдельно, а в логи — что ответил Instagram
+  if (!media.length) media = await mediaOneByOne(accessToken);
   const since = Date.now() - POLL_HOURS * 3600_000;
   let fresh = 0, fit = 0;
-  for (const m of res.data as Json[]) {
+  for (const m of media) {
     const code = String(m.shortcode ?? POST_CODE.exec(String(m.permalink ?? ""))?.[1] ?? "");
     if (code) postCodes.set(String(m.id), code);
     for (const c of (m.comments?.data ?? []) as Json[]) {
@@ -633,7 +637,24 @@ async function pollComments() {
         .catch((e) => console.error("Комментарий:", e));
     }
   }
-  console.log(`Комментарии под ${res.data.length} последними постами: за сутки ${fresh}, со словами из правил ${fit}`);
+  console.log(`Комментарии под ${media.length} последними постами: за сутки ${fresh}, со словами из правил ${fit}`);
+}
+
+/** Посты без комментариев, потом комментарии к постам, где они есть (не больше 8 запросов) */
+async function mediaOneByOne(accessToken: string): Promise<Json[]> {
+  const get = (path: string) => fetch(`${GRAPH}/${path}`, { headers: { Authorization: `Bearer ${accessToken}` } })
+    .then((r) => r.json()).catch((e) => ({ error: { message: String(e) } }));
+  const [me, list] = await Promise.all([get("me?fields=user_id,username,media_count"),
+    get("me/media?fields=id,shortcode,permalink,username,comments_count,timestamp&limit=25")]);
+  const media: Json[] = Array.isArray(list?.data) ? list.data : [];
+  console.log(`Посты с комментариями Instagram не отдал. Аккаунт @${me?.username ?? "?"}, постов у него: ${me?.media_count ?? me?.error?.message ?? "?"},`,
+    `списком отдал: ${Array.isArray(list?.data) ? media.length : list?.error?.message ?? JSON.stringify(list)}`);
+  for (const m of media.filter((m) => Number(m.comments_count) > 0).slice(0, 8)) {
+    const c = await get(`${m.id}/comments?fields=id,text,timestamp,username,from&limit=50`);
+    if (Array.isArray(c?.data)) m.comments = { data: c.data };
+    else console.error(`Комментарии к посту ${m.shortcode ?? m.id} не прочитать:`, c?.error?.message ?? c);
+  }
+  return media;
 }
 
 /* Ответ собирается из четырёх блоков через пустую строку: приветствие, описание, описание 2, ссылка.
