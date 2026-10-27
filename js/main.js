@@ -3,7 +3,8 @@
 import { $, telegram, inTelegram, setupTelegram, storage } from "./core.js?v=20261001b";
 import { rebuildCatalog, refreshCatalog } from "./catalog.js?v=20261001b";
 import { initNavigation, syncMainButton, setTab } from "./nav.js?v=20261001b";
-import { initShop } from "./shop.js?v=20261001b";
+import { initShop, openProduct } from "./shop.js?v=20261001b";
+import { state } from "./state.js?v=20261001b";
 import { initCart } from "./cart.js?v=20261001b";
 
 // Старые ссылки для сотрудников (…/?staff, …/?tasks из напоминаний бота, …/?order=номер) ведут на страницу сотрудников
@@ -20,12 +21,20 @@ if (["staff", "tasks", "order"].some((p) => params.has(p)) || /^order_/.test(tel
   initCart();
   rebuildCatalog();   // мгновенно: встроенные товары
   syncMainButton();
-  refreshCatalog();   // добавленные товары, остатки, скрытые позиции
+  const loaded = refreshCatalog();   // добавленные товары, остатки, скрытые позиции
   document.addEventListener("visibilitychange", () => !document.hidden && refreshCatalog());
   // Кнопка «Мои заказы» в боте открывает магазин сразу на вкладке заказов (…/?tab=orders)
   if (params.get("tab") === "orders" || telegram?.initDataUnsafe?.start_param === "orders") setTab("orders");
+  // Ссылка на товар (…/?p=номер) — её бот присылает в директ на «+» под постом: сразу открываем карточку.
+  // Встроенный товар есть сразу, добавленный — после загрузки каталога из базы
+  else if (Number(params.get("p"))) openLinkedProduct(Number(params.get("p")), loaded);
   // На устройстве, где сотрудник входил, — ссылка на страницу сотрудников (например, в мини-приложении Telegram)
   if (storage.get("temp_staff_token", "")) $("staffEntry").hidden = false;
+}
+
+function openLinkedProduct(id, loaded) {
+  const open = () => state.products.some((p) => p.id === id) && (openProduct(id), true);
+  if (!open()) loaded.then(open);
 }
 
 /** В Telegram на телефоне магазин масштабируется под ширину экрана: макет рассчитан на 390 px (обычный iPhone),
